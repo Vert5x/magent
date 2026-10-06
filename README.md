@@ -1,2 +1,11 @@
-# magent
-Custom AI CLI Agent module (Gemini/Groq/OpenAI/DeepSeek/etc.) for Hikka/Heroku userbot
+# magent (v1.4.0)
+
+Универсальный AI-модуль и агент для Hikka / Heroku Telegram Userbot.
+
+## Особенности
+- Поддержка провайдеров: Google Gemini, Groq, Mistral, OpenRouter, OpenAI, HuggingFace, DeepSeek, Together, Cerebras, xAI, Nvidia, Custom OpenAI-совместимый API.
+- Инструменты агента (Shell / Bash, чтение/запись файлов, поиск в сети, Telegram API).
+- Чистый вывод без мусора и навязчивых списков команд.
+- Строгий режим чистых спецсимволов и глифов (без эмодзи) с автоочисткой telegram premium эмоций при необходимости.
+- Прогресс-бар в стиле CodexCLI: индикация шагов, времени, статуса выполнения с иконкой 🌸 и символом ∅.
+- Автоматическое определение реальной активной модели для каждого провайдера.
