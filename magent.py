@@ -5,7 +5,7 @@
 
 # scope heroku_min: 2.0.0
 
-__version__ = ("1", "4", "2")
+__version__ = ("1", "4", "3")
 
 """￣へ￣"""
 
@@ -3109,18 +3109,18 @@ class magent(loader.Module):
         if not tool_steps:
             return ""
             
-        li_items = []
+        res_lines = []
         progress_lines = []
         
         for s in tool_steps:
             st_icon, res_disp, prog_disp, status_word, dur_s = self._format_tool_step_info(s)
-            li_items.append(f"<li><code>{st_icon} {utils.escape_html(res_disp)}</code></li>")
+            res_lines.append(f"• <code>{st_icon} {utils.escape_html(res_disp)}</code>")
             progress_lines.append(f"• <code>инструменты · {utils.escape_html(prog_disp)} · {status_word} · {dur_s}</code>")
             
         tot_s = f"{int(round(total_elapsed))}s" if total_elapsed >= 0.95 else f"{round(total_elapsed, 1)}s"
         progress_lines.append(f"• <code>готовит ответ · ответ · готово · {tot_s}</code>")
         
-        results_html = f"<details><summary>Результаты инструментов</summary><ul>{''.join(li_items)}</ul></details>"
+        results_html = f"<details><summary>Результаты инструментов</summary><b>Результаты инструментов:</b><blockquote>{'\n'.join(res_lines)}</blockquote></details>"
         progress_html = f"<details><summary>Ход работы</summary><b>Ход работы:</b><blockquote>{'\n'.join(progress_lines)}</blockquote></details>"
         
         return f"{results_html}\n{progress_html}"
@@ -3834,7 +3834,12 @@ class magent(loader.Module):
                 tool_summary = self._build_tool_details_blocks(self._tool_steps, elapsed) + "\n\n"
             
             question_html = f"<blockquote expandable='true'>{utils.escape_html(request_text[:180])}</blockquote>"
-            text_to_send = f"{mem_indicator}\n{model_info}\n\n{self.strings['question_prefix']}\n{question_html}\n\n{tool_summary}{thinking_block}{self.strings['response_prefix']}\n{formatted_body}"
+            text_to_send = (
+                f"{mem_indicator}\n{model_info}\n\n"
+                f"{self.strings['question_prefix']}\n{question_html}\n\n"
+                f"{self.strings['response_prefix']}\n{formatted_body}\n\n"
+                f"{tool_summary}{thinking_block}"
+            ).strip()
             if call or self.config["interactive_buttons"]:
                 text_to_send = text_to_send.replace('<emoji document_id=', '<tg-emoji emoji-id=').replace('</emoji>', '</tg-emoji>')
             text_to_send = self._maybe_clean_symbols(text_to_send)
@@ -3931,7 +3936,8 @@ class magent(loader.Module):
         time_str = f" · ◴ {elapsed}s" if self.config["show_time"] else ""
         header = f"<h3>✦ {self._provider_label(provider)} · <code>{model}</code></h3><p>{mem_indicator}{time_str}{tok_str}</p>"
         
-        return f"{header}{req_details}{tools_html}{thinking_html}<hr>{body_html}"
+        divider = "<hr>" if (tools_html or thinking_html) else ""
+        return f"{header}{req_details}{body_html}{divider}{tools_html}{thinking_html}"
 
     async def _refresh_premium_emoji(self, target, text, buttons, is_call=False):
         """Доп. перерисовка сообщения — Telegram подхватывает премиум-эмодзи."""
