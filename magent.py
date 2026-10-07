@@ -5,7 +5,7 @@
 
 # scope heroku_min: 2.0.0
 
-__version__ = ("1", "4", "1")
+__version__ = ("1", "4", "2")
 
 """￣へ￣"""
 
@@ -3036,7 +3036,13 @@ class magent(loader.Module):
         status_word = "готово" if st == "done" else "ошибка" if st == "err" else "выполняется"
         
         if name == "run_terminal":
-            cmd = str(args.get("command", "")).strip()
+            raw_cmd = str(args.get("command", "")).strip()
+            lines = [l.strip() for l in raw_cmd.splitlines() if l.strip()]
+            cmd = lines[0] if lines else raw_cmd
+            if len(lines) > 1:
+                cmd += " ..."
+            if len(cmd) > 90:
+                cmd = cmd[:87] + "..."
             res_disp = f"bash: {cmd}"
             prog_disp = cmd
         elif name == "read_file":
@@ -3824,7 +3830,7 @@ class magent(loader.Module):
             thinking_block = f"<blockquote expandable='true'><i>⌬ Ход мыслей:</i>\n{utils.escape_html(thinking_text)}</blockquote>\n\n" if thinking_text else ""
             
             tool_summary = ""
-            if getattr(self, "_tool_steps", []) and self.config.get("show_tool_calls_in_response", True):
+            if getattr(self, "_tool_steps", []):
                 tool_summary = self._build_tool_details_blocks(self._tool_steps, elapsed) + "\n\n"
             
             question_html = f"<blockquote expandable='true'>{utils.escape_html(request_text[:180])}</blockquote>"
@@ -3911,7 +3917,7 @@ class magent(loader.Module):
         body_html = self._markdown_to_rich_html(clean_text)
         
         tools_html = ""
-        if tool_steps and self.config.get("show_tool_calls_in_response", True):
+        if tool_steps:
             tools_html = self._build_tool_details_blocks(tool_steps, elapsed) + "\n"
             
         thinking_html = ""
