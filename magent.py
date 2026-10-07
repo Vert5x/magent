@@ -5,7 +5,7 @@
 
 # scope heroku_min: 2.0.0
 
-__version__ = ("1", "4", "0")
+__version__ = ("1", "4", "1")
 
 """￣へ￣"""
 
@@ -1770,7 +1770,7 @@ class magent(loader.Module):
             loader.ConfigValue("premium_emoji_refresh", True, "Доп. перерисовка финального ответа, чтобы подхватились премиум-эмодзи (нужен Telegram Premium у аккаунта).", validator=loader.validators.Boolean()),
             loader.ConfigValue("rich_mode", True, "Включить Telegram Rich Mode (нативные детали <details>, thinking-блоки модели, таблицы и расширенная разметка).", validator=loader.validators.Boolean()),
             loader.ConfigValue("clean_symbols_mode", True, "Режим без эмодзи: заменять все эмодзи (в т.ч. премиум) на строгие текстовые Unicode-символы.", validator=loader.validators.Boolean()),
-            loader.ConfigValue("show_tool_calls_in_response", False, "Показывать вызовы инструментов в итоговом ответе AI (по умолчанию False — для чистоты ответа).", validator=loader.validators.Boolean()),
+            loader.ConfigValue("show_tool_calls_in_response", True, "Показывать результаты инструментов и ход работы в итоговом ответе AI.", validator=loader.validators.Boolean()),
             # --- KeyTest (валидатор ключей: .keytest / .kprov / .kproxytest) ---
             loader.ConfigValue("kt_timeout", 20, "KeyTest: таймаут запроса проверки ключа, сек.", validator=loader.validators.Integer(minimum=5, maximum=120)),
             loader.ConfigValue("kt_show_model", True, "KeyTest: показывать протестированную модель.", validator=loader.validators.Boolean()),
@@ -3025,6 +3025,100 @@ class magent(loader.Module):
         a = ", ".join(f"{k}={str(v)[:24]}" for k, v in args.items())
         return f"{name}({a})"
 
+    def _format_tool_step_info(self, step: dict):
+        name = step.get("name", "")
+        args = step.get("args", {}) or {}
+        st = step.get("state", "done")
+        dur = float(step.get("duration", 0.0) or 0.0)
+        dur_s = f"{int(round(dur))}s" if dur >= 0.95 else f"{round(dur, 1)}s"
+        
+        st_icon = "✓" if st == "done" else "✗" if st == "err" else "◴"
+        status_word = "готово" if st == "done" else "ошибка" if st == "err" else "выполняется"
+        
+        if name == "run_terminal":
+            cmd = str(args.get("command", "")).strip()
+            res_disp = f"bash: {cmd}"
+            prog_disp = cmd
+        elif name == "read_file":
+            p = str(args.get("path", "")).strip()
+            res_disp = f"read: {p}"
+            prog_disp = f"read {p}"
+        elif name == "write_file":
+            p = str(args.get("path", "")).strip()
+            res_disp = f"write: {p}"
+            prog_disp = f"write {p}"
+        elif name == "web_search":
+            q = str(args.get("query", "")).strip()
+            res_disp = f"search: {q}"
+            prog_disp = f"search {q}"
+        elif name == "fetch_url":
+            u = str(args.get("url", "")).strip()
+            res_disp = f"fetch: {u}"
+            prog_disp = f"fetch {u}"
+        elif name == "find_files":
+            pat = str(args.get("pattern", "*")).strip()
+            res_disp = f"find: {pat}"
+            prog_disp = f"find {pat}"
+        elif name == "search_in_file":
+            p = str(args.get("path", "")).strip()
+            q = str(args.get("query", "")).strip()
+            res_disp = f"grep: {p} '{q}'"
+            prog_disp = f"grep {p} '{q}'"
+        elif name == "replace_in_file":
+            p = str(args.get("path", "")).strip()
+            res_disp = f"replace: {p}"
+            prog_disp = f"replace in {p}"
+        elif name == "list_dir":
+            p = str(args.get("path", "")).strip() or "."
+            res_disp = f"ls: {p}"
+            prog_disp = f"ls {p}"
+        elif name == "send_file":
+            fn = str(args.get("filename") or args.get("path") or "file")
+            res_disp = f"send_file: {fn}"
+            prog_disp = f"send_file {fn}"
+        elif name == "upload_file":
+            fn = str(args.get("filename") or args.get("path") or "file")
+            res_disp = f"upload: {fn}"
+            prog_disp = f"upload {fn}"
+        elif name == "tg_send":
+            ch = str(args.get("chat", "")).strip()
+            res_disp = f"tg_send: {ch}"
+            prog_disp = f"tg_send {ch}"
+        elif name == "tg_history":
+            ch = str(args.get("chat", "")).strip()
+            res_disp = f"tg_history: {ch}"
+            prog_disp = f"tg_history {ch}"
+        elif name == "tg_action":
+            act = str(args.get("action", "")).strip()
+            res_disp = f"tg_act: {act}"
+            prog_disp = f"tg_act {act}"
+        else:
+            prev = self._tool_preview(name, args)
+            res_disp = prev
+            prog_disp = prev
+            
+        return st_icon, res_disp, prog_disp, status_word, dur_s
+
+    def _build_tool_details_blocks(self, tool_steps: list, total_elapsed: float = 0.0) -> str:
+        if not tool_steps:
+            return ""
+            
+        li_items = []
+        progress_lines = []
+        
+        for s in tool_steps:
+            st_icon, res_disp, prog_disp, status_word, dur_s = self._format_tool_step_info(s)
+            li_items.append(f"<li><code>{st_icon} {utils.escape_html(res_disp)}</code></li>")
+            progress_lines.append(f"• <code>инструменты · {utils.escape_html(prog_disp)} · {status_word} · {dur_s}</code>")
+            
+        tot_s = f"{int(round(total_elapsed))}s" if total_elapsed >= 0.95 else f"{round(total_elapsed, 1)}s"
+        progress_lines.append(f"• <code>готовит ответ · ответ · готово · {tot_s}</code>")
+        
+        results_html = f"<details><summary>Результаты инструментов</summary><ul>{''.join(li_items)}</ul></details>"
+        progress_html = f"<details><summary>Ход работы</summary><b>Ход работы:</b><blockquote>{'\n'.join(progress_lines)}</blockquote></details>"
+        
+        return f"{results_html}\n{progress_html}"
+
     async def _render_tool_progress(self, status_msg, call):
         if not getattr(self, "_tool_steps", []):
             return
@@ -3077,14 +3171,15 @@ class magent(loader.Module):
         self._tool_repeat[repeat_key] = self._tool_repeat.get(repeat_key, 0) + 1
         if self._tool_repeat[repeat_key] >= 3:
             step = {"name": name, "args": args or {}, "state": "err",
-                    "out": "blocked: repeated identical call"}
+                    "out": "blocked: repeated identical call", "duration": 0.0}
             self._tool_steps.append(step)
             await self._render_tool_progress(status_msg, call)
             return ("ERROR: loop-guard — этот инструмент уже вызывался с такими же аргументами 3+ раза и в этой сессии. "
                     "НЕ повторяй вызов: либо измени подход (другая команда/путь), либо заверши ответ по имеющимся данным.")
         if len(self._tool_repeat) > 500:
             self._tool_repeat = {}
-        step = {"name": name, "args": args or {}, "state": "run", "out": ""}
+        t0 = time.time()
+        step = {"name": name, "args": args or {}, "state": "run", "out": "", "start_time": t0, "duration": 0.0}
         self._tool_steps.append(step)
         await self._render_tool_progress(status_msg, call)
         try:
@@ -3094,6 +3189,7 @@ class magent(loader.Module):
         except Exception:
             pass
         out = await self._execute_tool(name, args)
+        step["duration"] = max(0.1, round(time.time() - t0, 1))
         step["state"] = "err" if str(out).startswith("ERROR") else "done"
         step["out"] = str(out)
         await self._render_tool_progress(status_msg, call)
@@ -3728,12 +3824,8 @@ class magent(loader.Module):
             thinking_block = f"<blockquote expandable='true'><i>⌬ Ход мыслей:</i>\n{utils.escape_html(thinking_text)}</blockquote>\n\n" if thinking_text else ""
             
             tool_summary = ""
-            if getattr(self, "_tool_steps", []) and self.config.get("show_tool_calls_in_response", False):
-                t_lines = []
-                for s in self._tool_steps:
-                    st = "✓" if s.get("state") == "done" else "✗" if s.get("state") == "err" else "◴"
-                    t_lines.append(f"{st} <code>{utils.escape_html(self._tool_preview(s.get('name', ''), s.get('args', {})))}</code>")
-                tool_summary = f"<blockquote expandable='true'><i>⎈ Выполнено действий ({len(self._tool_steps)}):</i>\n" + "\n".join(t_lines) + "</blockquote>\n\n"
+            if getattr(self, "_tool_steps", []) and self.config.get("show_tool_calls_in_response", True):
+                tool_summary = self._build_tool_details_blocks(self._tool_steps, elapsed) + "\n\n"
             
             question_html = f"<blockquote expandable='true'>{utils.escape_html(request_text[:180])}</blockquote>"
             text_to_send = f"{mem_indicator}\n{model_info}\n\n{self.strings['question_prefix']}\n{question_html}\n\n{tool_summary}{thinking_block}{self.strings['response_prefix']}\n{formatted_body}"
@@ -3819,13 +3911,8 @@ class magent(loader.Module):
         body_html = self._markdown_to_rich_html(clean_text)
         
         tools_html = ""
-        if tool_steps and self.config.get("show_tool_calls_in_response", False):
-            items = []
-            for s in tool_steps:
-                st_icon = "✓" if s.get("state") == "done" else "✗" if s.get("state") == "err" else "◴"
-                pr = utils.escape_html(self._tool_preview(s.get("name", ""), s.get("args", {})))
-                items.append(f"<p>{st_icon} <code>{pr}</code></p>")
-            tools_html = f"<details><summary>⎈ Вызовы инструментов ({len(tool_steps)})</summary>{''.join(items)}</details>"
+        if tool_steps and self.config.get("show_tool_calls_in_response", True):
+            tools_html = self._build_tool_details_blocks(tool_steps, elapsed) + "\n"
             
         thinking_html = ""
         if thinking_text:
