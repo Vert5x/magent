@@ -2947,6 +2947,10 @@ class magent(loader.Module):
                 return list(self.api_keys)
             raw = str(self.config.get("api_key") or "")
             return [k.strip() for k in raw.split(",") if k.strip()]
+
+    def _resolve_provider_api_key(self, provider: str) -> str:
+        keys = self._keys_for(provider)
+        return keys[0] if keys else ""
         if provider == "openrouter":
             return self._get_openrouter_keys()
         if provider == "huggingface":
@@ -3362,7 +3366,6 @@ class magent(loader.Module):
             use_url_context=use_url_context, display_prompt=clean_args or None
         )
 
-
     @loader.command()
     async def mtools(self, message: Message):
         """[on/off] — Включить или отключить режим выполнения инструментов."""
@@ -3378,7 +3381,6 @@ class magent(loader.Module):
             state, self.config["tools_max_iters"], self.config["tools_shell_timeout"], self._provider_label()
         )))
 
-
     @loader.command()
     async def mt(self, message: Message):
         """[текст или reply] — Запрос к AI с выполнением инструментов (терминал, код, Telegram)."""
@@ -3388,7 +3390,6 @@ class magent(loader.Module):
                 state, self.config["tools_max_iters"], self.config["tools_shell_timeout"], self._provider_label()
             )))
         await self.m(message)
-
 
     @loader.command()
     async def mstat(self, message: Message):
@@ -3481,7 +3482,6 @@ class magent(loader.Module):
             ephemeral=True,
         )
 
-
     @loader.command()
     async def mmusic(self, message: Message):
         """<промпт> — Генерация музыки или аудио через Gemini Lyria."""
@@ -3538,7 +3538,6 @@ class magent(loader.Module):
         )
         await m.delete()
 
-
     @loader.command()
     async def mimg(self, message: Message):
         """<промпт> [reply] — Генерация или редактирование изображений."""
@@ -3591,7 +3590,6 @@ class magent(loader.Module):
         except Exception as e:
             await utils.answer(m, f"▲ <b>Ошибка:</b>\n<code>{utils.escape_html(str(e))}</code>")
 
-
     @loader.command()
     async def mskey(self, message: Message):
         """[-h] — Проверить статус доступности API-ключей Gemini."""
@@ -3617,6 +3615,64 @@ class magent(loader.Module):
                 report += "\n\n▲ <b>Найдены невалидные ключи.</b>"
         await utils.answer(message, report)
 
+    async def _scan_keys(self, force=False):
+        if not GOOGLE_AVAILABLE: return "Library missing", []
+        current_map_keys = list(self.key_model_map.keys())
+        for k in current_map_keys:
+            if k not in self.api_keys: del self.key_model_map[k]
+        if not force and all(k in self.key_model_map for k in self.api_keys):
+            return "Loaded from cache", []
+        if force: self.key_model_map = {}
+        proxy_config = self._get_proxy_config()
+        http_opts = types.HttpOptions(async_client_args={"proxies": proxy_config, "timeout": 10.0}) if proxy_config else None
+        active_keys = []
+        invalid_keys = []
+        minimal_config = types.GenerateContentConfig(
+            response_mime_type="text/plain",
+            max_output_tokens=1, 
+            candidate_count=1,
+            safety_settings=[types.SafetySetting(category="HARM_CATEGORY_HARASSMENT", threshold="BLOCK_NONE")]
+        )
+        for i, key in enumerate(self.api_keys):
+            if i > 0: await asyncio.sleep(1.2)
+            try:
+                client = genai.Client(api_key=key, http_options=http_opts)
+                response = await client.aio.models.generate_content(
+                    model=CHECK_MODEL, contents="test", config=minimal_config
+                )
+                active_keys.append(key)
+                self.key_model_map[key] = 1
+            except Exception as e:
+                err = str(e).lower()
+                if "invalid_argument" in err or "api_key_invalid" in err or "400" in err or "blocked" in err:
+                    invalid_keys.append(key)
+                    self.key_model_map[key] = -1
+                else:
+                    self.key_model_map[key] = 0 
+        self.db.set(self.strings["name"], DB_KEY_MAP_KEY, self.key_model_map)
+        short_report = (
+            f"✓ <b>Скан завершен.</b>\n"
+            f"◈ <b>Active:</b> {len(active_keys)}\n"
+            f"⌫ <b>Invalid:</b> {len(invalid_keys)}\n"
+            f"◇ <b>RateLimited/Other:</b> {len(self.api_keys) - len(active_keys) - len(invalid_keys)}"
+        )
+        return short_report, invalid_keys
+
+    def _get_sorted_keys(self):
+        valid_keys = []
+        now = time.time()
+        for key in self.api_keys:
+            if self.key_cooldowns.get(str(key), 0) > now:
+                continue
+            if key not in self.key_model_map:
+                valid_keys.append((key, 0, random.random()))
+                continue
+            tier = self.key_model_map[key]
+            if tier == -1:
+                continue
+            valid_keys.append((key, tier, random.random()))
+        valid_keys.sort(key=lambda x: (-x[1], x[2]))
+        return [item[0] for item in valid_keys]
 
     @loader.command()
     async def mch(self, message: Message):
@@ -3669,7 +3725,6 @@ class magent(loader.Module):
             ephemeral=True,
         )
 
-
     @loader.command()
     async def mprompt(self, message: Message):
         """<текст/-c/reply> — Установить или сбросить системную инструкцию."""
@@ -3706,7 +3761,6 @@ class magent(loader.Module):
         else:
             await utils.answer(message, f"{self.strings['gprompt_current']}\n<code>{utils.escape_html(current_prompt)}</code>")
 
-
     @loader.command()
     async def mauto(self, message: Message):
         """[on/off/id] — Включить или отключить автоответчик в чате."""
@@ -3733,7 +3787,6 @@ class magent(loader.Module):
             await utils.answer(message, txt)
         else: await utils.answer(message, self.strings["auto_mode_usage"])
 
-
     @loader.command()
     async def mautochats(self, message: Message):
         """— Список чатов с активным автоответчиком."""
@@ -3746,7 +3799,6 @@ class magent(loader.Module):
                 out.append(self.strings["memory_chat_line"].format(name, cid))
             except: out.append(self.strings["memory_chat_line"].format("Неизвестный чат", cid))
         await utils.answer(message, "\n".join(out))
-
 
     @loader.command()
     async def mclear(self, message: Message):
@@ -3777,7 +3829,6 @@ class magent(loader.Module):
             await utils.answer(message, self.strings["memory_cleared_global"] if hist_key == "global_context" else self.strings["memory_cleared"])
         else:
             await utils.answer(message, self.strings["no_memory_to_clear"])
-
 
     @loader.command()
     async def mpresets(self, message: Message):
@@ -3825,6 +3876,16 @@ class magent(loader.Module):
         else:
              await utils.answer(message, self.strings["gpresets_usage"])
 
+    def _find_preset(self, query):
+        if not query: return None
+        if str(query).isdigit():
+            idx = int(query) - 1 
+            if 0 <= idx < len(self.prompt_presets):
+                return self.prompt_presets[idx]
+        for p in self.prompt_presets:
+            if p['name'].lower() == str(query).lower():
+                return p
+        return None
 
     @loader.command()
     async def mmemdel(self, message: Message):
@@ -3838,7 +3899,6 @@ class magent(loader.Module):
             self._save_history_sync()
             await utils.answer(message, f"⌫ Удалено последних <b>{n}</b> пар сообщений из памяти.")
         else: await utils.answer(message, "Недостаточно истории для удаления.")
-
 
     @loader.command()
     async def mmemchats(self, message: Message):
@@ -3859,7 +3919,6 @@ class magent(loader.Module):
         self._save_history_sync()
         if len(out) == 1: return await utils.answer(message, self.strings["no_memory_found"])
         await utils.answer(message, "\n".join(out))
-
 
     @loader.command()
     async def mmemexport(self, message: Message):
@@ -3926,7 +3985,6 @@ class magent(loader.Module):
             else:
                  await message.delete()
 
-
     @loader.command()
     async def mmemimport(self, message: Message):
         """[auto] [reply] — Импортировать историю диалогов из JSON-файла."""
@@ -3970,7 +4028,6 @@ class magent(loader.Module):
         except Exception as e:
             await utils.answer(message, f"▲ Ошибка импорта: {e}")
 
-
     @loader.command()
     async def mmemfind(self, message: Message):
         """<текст> — Поиск фрагментов по истории диалога в текущем чате."""
@@ -3982,7 +4039,6 @@ class magent(loader.Module):
         if not found: await utils.answer(message, "Ничего не найдено.")
         else: await utils.answer(message, "\n\n".join(found[:10]))
 
-
     @loader.command()
     async def mmemoff(self, message: Message):
         """— Отключить сохранение контекста в текущем чате."""
@@ -3990,14 +4046,12 @@ class magent(loader.Module):
         self.db.set(self.strings["name"], DB_MEMORY_DISABLED_KEY, list(self.memory_disabled_chats))
         await utils.answer(message, "Память в этом чате отключена.")
 
-
     @loader.command()
     async def mmemon(self, message: Message):
         """— Включить сохранение контекста в текущем чате."""
         self.memory_disabled_chats.discard(str(utils.get_chat_id(message)))
         self.db.set(self.strings["name"], DB_MEMORY_DISABLED_KEY, list(self.memory_disabled_chats))
         await utils.answer(message, "Память в этом чате включена.")
-
 
     @loader.command()
     async def mmemshow(self, message: Message):
@@ -4015,6 +4069,8 @@ class magent(loader.Module):
             elif role == 'model': out.append(f"<b>AI:</b> {content}")
         await utils.answer(message, "<blockquote expandable='true'>" + "\n".join(out) + "</blockquote>")
 
+    def _save_skills(self):
+        self.db.set(self.strings["name"], DB_SKILLS_KEY, self.skills)
 
     @loader.command()
     async def mskill(self, message: Message):
@@ -4090,12 +4146,154 @@ class magent(loader.Module):
         verb = "обновлён" if existed else "добавлен"
         await utils.answer(message, f"✓ Навык <b>{utils.escape_html(name)}</b> {verb} — буду помнить всегда ⏣")
 
-
     @loader.command()
     async def mteach(self, message: Message):
         """<имя> <описание> — Быстро обучить AI новому постоянному правилу."""
         await self.mskill(message)
 
+    async def _show_providers_interactive_card(self, entity):
+        current_provider = self._normalize_provider_name()
+        effective = self._resolve_effective_model(current_provider, self.config["model_name"], [], "")
+        has_key = bool(self._resolve_provider_api_key(current_provider))
+        status_key = "✓ Настроен" if has_key else "▲ Не настроен"
+        
+        text = (
+            "⬡ <b>Выбор провайдера API</b>\n\n"
+            f"• <b>Текущий:</b> <code>{self._provider_label(current_provider)}</code>\n"
+            f"• <b>Активная модель:</b> <code>{utils.escape_html(effective)}</code>\n"
+            f"• <b>API Ключ:</b> {status_key}\n"
+            f"• <b>Профиль:</b> <code>{utils.escape_html(str(self.config['model_profile']))}</code> · <b>Auto:</b> <code>{'on' if self.config['auto_model'] else 'off'}</code>\n\n"
+            "<i>▼ Нажмите на провайдера для мгновенного переключения:</i>"
+        )
+        
+        buttons = []
+        row = []
+        for prov in self.CORE_PROVIDER_ORDER:
+            label = self._provider_label(prov)
+            mark = "✓ " if prov == current_provider else ""
+            row.append({"text": f"{mark}{label}", "data": f"gemini:prov:set:{prov}"})
+            if len(row) == 2:
+                buttons.append(row)
+                row = []
+        if row:
+            buttons.append(row)
+            
+        buttons.append([
+            {"text": f"∅ Модели {self._provider_label(current_provider)}", "data": f"gemini:prov:models:{current_provider}"},
+            {"text": "⌖ Настройка профиля", "data": "gemini:prov:profile"},
+        ])
+        buttons.append([
+            {"text": "✗ Закрыть", "data": "gemini:close:prov"}
+        ])
+        
+        text = self._maybe_clean_symbols(text)
+        if self.config.get("clean_symbols_mode", False):
+            for r in buttons:
+                for b in r:
+                    b["text"] = self._clean_symbols_filter(b.get("text", ""))
+        try:
+            if isinstance(entity, Message):
+                await self.inline.form(text=text, message=entity, reply_markup=buttons)
+            elif isinstance(entity, InlineCall):
+                await entity.edit(text=text, reply_markup=buttons)
+        except Exception:
+            if isinstance(entity, Message):
+                await utils.answer(entity, text)
+
+    async def _show_profiles_interactive_card(self, entity):
+        current_profile = str(self.config.get("model_profile", "manual")).lower()
+        provider = self._normalize_provider_name()
+        effective = self._resolve_effective_model(provider, self.config["model_name"], [], "")
+        
+        profile_descriptions = {
+            "auto": "Умный авто-подбор под текст запроса",
+            "balanced": "Баланс качества, скорости и цены",
+            "fast": "Максимальная скорость ответа",
+            "reasoning": "Глубокие рассуждения (thinking)",
+            "coding": "Специализация на коде и разработке",
+            "vision": "Мультимодальность / зрение / медиа",
+            "manual": "Фиксированная модель (без авто-смены)",
+        }
+        desc = profile_descriptions.get(current_profile, "")
+        
+        text = (
+            "⌖ <b>Профиль авто-подбора модели</b>\n\n"
+            f"• <b>Текущий профиль:</b> <code>{current_profile}</code> ({desc})\n"
+            f"• <b>Auto-model:</b> <code>{'on' if self.config['auto_model'] else 'off'}</code>\n"
+            f"• <b>Провайдер:</b> <code>{self._provider_label(provider)}</code>\n"
+            f"• <b>Сейчас выберет:</b> <code>{utils.escape_html(effective)}</code>\n\n"
+            "<i>▼ Выберите профиль для переключения:</i>"
+        )
+        
+        buttons = []
+        row = []
+        for prof in MODEL_PROFILE_CHOICES:
+            mark = "✓ " if prof == current_profile else ""
+            row.append({"text": f"{mark}{prof}", "data": f"gemini:prof:set:{prof}"})
+            if len(row) == 2:
+                buttons.append(row)
+                row = []
+        if row:
+            buttons.append(row)
+            
+        buttons.append([
+            {"text": "∅ Модели (.mmodels)", "data": "gemini:prof:models"},
+            {"text": "⬡ Провайдеры (.mprovider)", "data": "gemini:prov:menu"},
+        ])
+        buttons.append([
+            {"text": "✗ Закрыть", "data": "gemini:close:prof"}
+        ])
+        
+        text = self._maybe_clean_symbols(text)
+        if self.config.get("clean_symbols_mode", False):
+            for r in buttons:
+                for b in r:
+                    b["text"] = self._clean_symbols_filter(b.get("text", ""))
+        try:
+            if isinstance(entity, Message):
+                await self.inline.form(text=text, message=entity, reply_markup=buttons)
+            elif isinstance(entity, InlineCall):
+                await entity.edit(text=text, reply_markup=buttons)
+        except Exception:
+            if isinstance(entity, Message):
+                await utils.answer(entity, text)
+
+    async def _show_model_interactive_card(self, entity):
+        provider = self._normalize_provider_name()
+        provider_config_keys = self.PROVIDER_MODEL_CFG
+        cfg_key = provider_config_keys.get(provider)
+        provider_specific = self.config.get(cfg_key, "") if cfg_key else ""
+        effective = self._resolve_effective_model(provider, self.config["model_name"], [], "")
+        def_mod = self._provider_default_model(provider)
+        extra = f"\n∅ <b>Модель для {self._provider_label(provider)}:</b> <code>{utils.escape_html(str(provider_specific) or f'— (по умолчанию: {def_mod})')}</code>" if (cfg_key and provider != "google") else ""
+        
+        text = (
+            f"⌘ <b>Провайдер:</b> <code>{self._provider_label(provider)}</code>\n"
+            f"⌬ <b>Основная модель:</b> <code>{utils.escape_html(str(self.config['model_name']))}</code>{extra}\n"
+            f"⌖ <b>Эффективная модель:</b> <code>{utils.escape_html(effective)}</code>\n"
+            f"⌖ <b>Профиль:</b> <code>{utils.escape_html(str(self.config['model_profile']))}</code> · <b>Auto:</b> <code>{'on' if self.config['auto_model'] else 'off'}</code>\n\n"
+            f"<i>▼ Быстрые действия:</i>"
+        )
+        buttons = [
+            [{"text": f"∅ Выбрать модель {self._provider_label(provider)}", "data": f"gemini:gmod:quick_models:{provider}"}],
+            [
+                {"text": "⬡ Сменить провайдера", "data": "gemini:prov:menu"},
+                {"text": "⌖ Настроить профиль", "data": "gemini:prof:menu"},
+            ],
+            [{"text": "✗ Закрыть", "data": "gemini:close:model"}],
+        ]
+        text = self._maybe_clean_symbols(text)
+        if self.config.get("clean_symbols_mode", False):
+            for r in buttons:
+                for b in r:
+                    b["text"] = self._clean_symbols_filter(b.get("text", ""))
+        try:
+            if isinstance(entity, Message):
+                await self.inline.form(text=text, message=entity, reply_markup=buttons)
+            elif isinstance(entity, InlineCall):
+                await entity.edit(text=text, reply_markup=buttons)
+        except Exception:
+            await utils.answer(entity, text)
 
     @loader.command()
     async def mprovider(self, message: Message):
@@ -4114,7 +4312,6 @@ class magent(loader.Module):
         effective = self._resolve_effective_model(provider, restored, [], "")
         await utils.answer(message, self.strings["gprovider_set"].format(self._provider_label(provider), utils.escape_html(effective)))
 
-
     @loader.command()
     async def mprofile(self, message: Message):
         """[профиль] — Выбор профиля авто-подбора модели (auto, balanced, fast, coding и др.)."""
@@ -4129,7 +4326,6 @@ class magent(loader.Module):
         effective = self._resolve_effective_model(provider, self.config["model_name"], [], "")
         self._remember_provider_model(provider, effective, manual=args == "manual")
         await utils.answer(message, self.strings["gprofile_set"].format(utils.escape_html(args), utils.escape_html(effective)))
-
 
     @loader.command()
     async def mmodel(self, message: Message):
@@ -4159,7 +4355,6 @@ class magent(loader.Module):
             )
         await utils.answer(message, f"✓ Модель установлена: <code>{utils.escape_html(args_raw)}</code>\n⌖ Авто-подбор переключен в <code>manual</code>. Вернуть: <code>.mprofile auto</code>{warning}")
 
-
     @loader.command()
     async def mrich(self, message: Message):
         """[on/off] — Переключить Rich Mode (спойлеры <details>, блоки размышлений, таблицы)."""
@@ -4180,7 +4375,6 @@ class magent(loader.Module):
             await utils.answer(message, "✗ <b>Telegram Rich Mode выключен.</b> Используется классическая разметка blockquote.")
         else:
             await utils.answer(message, "Использование: <code>.mrich on</code> или <code>.mrich off</code>")
-
 
     @loader.command()
     async def mnoemoji(self, message: Message):
@@ -4214,9 +4408,6 @@ class magent(loader.Module):
         else:
             await utils.answer(message, "Использование: <code>.mnoemoji on</code> или <code>.mnoemoji off</code>")
 
-
-
-
     @loader.command()
     async def mmodels(self, message: Message):
         """[провайдер] [поиск] — Интерактивное меню каталога моделей с выбором по кнопке."""
@@ -4244,6 +4435,509 @@ class magent(loader.Module):
         except Exception as e:
             await utils.answer(status_msg, f"▲ <b>Ошибка загрузки каталога моделей:</b> {self._handle_error(e)}")
 
+    async def _show_provider_model_catalog(self, entity, provider: str):
+        await self._show_provider_models_menu(entity, provider)
+
+    async def _show_provider_models_menu(self, entity, provider: str, query: str = "", page: int = 0):
+        provider = self._normalize_provider_name(provider)
+        models, source_label, is_live = await self._fetch_provider_models_via_curl(provider)
+        if not models:
+            raise ValueError(self.strings.get("gmodel_no_models", "Не удалось получить список моделей."))
+
+        filt = query.strip().lower()
+        filtered = [m for m in models if filt in m.lower()] if filt else list(models)
+
+        uid = uuid.uuid4().hex[:6]
+        if not hasattr(self, "models_menu_cache") or not isinstance(self.models_menu_cache, dict):
+            self.models_menu_cache = {}
+
+        self.models_menu_cache[uid] = {
+            "provider": provider,
+            "raw_models": models,
+            "models": filtered,
+            "source_label": source_label,
+            "is_live": is_live,
+            "page": page,
+            "filter": query.strip(),
+            "chat_id": getattr(entity, "chat_id", 0),
+            "msg_id": getattr(entity, "id", None),
+            "time": time.time(),
+        }
+        await self._render_models_menu(uid, page, entity)
+
+    async def _render_models_menu(self, uid: str, page: int, entity):
+        data = getattr(self, "models_menu_cache", {}).get(uid)
+        if not data:
+            if isinstance(entity, InlineCall):
+                await entity.edit(
+                    "▲ <b>Сессия меню истекла.</b>\nВызовите <code>.mmodels</code> снова.",
+                    reply_markup=[[{"text": "✗ Закрыть", "data": "gemini:close:expired"}]]
+                )
+            return
+
+        provider = self._normalize_provider_name(data["provider"])
+        models = data.get("models", [])
+        total_items = len(models)
+        raw_count = len(data.get("raw_models", []))
+        source_label = data.get("source_label", "API")
+        is_live = data.get("is_live", False)
+        current_filter = data.get("filter", "")
+
+        cfg_key = self.PROVIDER_MODEL_CFG.get(provider)
+        active_model = self.config.get(cfg_key) if cfg_key else self.config.get("model_name")
+        active_model = str(active_model or self._provider_default_model(provider)).strip()
+
+        PAGE_SIZE = 6
+        total_pages = max(1, (total_items + PAGE_SIZE - 1) // PAGE_SIZE)
+        page = max(0, min(page, total_pages - 1))
+        data["page"] = page
+
+        start_idx = page * PAGE_SIZE
+        end_idx = min(start_idx + PAGE_SIZE, total_items)
+        page_models = models[start_idx:end_idx]
+
+        buttons = []
+        for i, m in enumerate(page_models, start=start_idx):
+            is_active = (m == active_model)
+            marker = "✓ " if is_active else "∅ "
+            disp = m if len(m) <= 32 else m[:15] + "…" + m[-14:]
+            buttons.append([{"text": f"{marker}{disp}", "data": f"gemini:gmod:set:{uid}:{i}"}])
+
+        # Quick tag filters for providers with many models
+        if raw_count > 15:
+            filter_row = [
+                {"text": "✦ Все" if current_filter else "Все", "data": f"gemini:gmod:flt:{uid}:all"},
+                {"text": "Claude", "data": f"gemini:gmod:flt:{uid}:claude"},
+                {"text": "GPT", "data": f"gemini:gmod:flt:{uid}:gpt"},
+                {"text": "DeepSeek", "data": f"gemini:gmod:flt:{uid}:deepseek"},
+                {"text": "Qwen", "data": f"gemini:gmod:flt:{uid}:qwen"},
+            ]
+            buttons.append(filter_row)
+
+        # Pagination row
+        if total_pages > 1:
+            nav_row = []
+            if page > 0:
+                nav_row.append({"text": "◀️", "data": f"gemini:gmod:pg:{uid}:{page - 1}"})
+            nav_row.append({"text": f"{page + 1}/{total_pages} ({total_items})", "data": "gemini:noop"})
+            if page < total_pages - 1:
+                nav_row.append({"text": "▶️", "data": f"gemini:gmod:pg:{uid}:{page + 1}"})
+            buttons.append(nav_row)
+
+        # Action row
+        bottom_row = [
+            {"text": "⬡ Провайдер", "data": f"gemini:gmod:prov_menu:{uid}"},
+            {"text": "↺ Обновить (curl)", "data": f"gemini:gmod:ref:{uid}"},
+            {"text": "✗ Закрыть", "data": f"gemini:close:{uid}"},
+        ]
+        buttons.append(bottom_row)
+
+        status_dot = "●" if is_live else "◐"
+        filter_str = f"\n⌕ <b>Фильтр:</b> <code>{utils.escape_html(current_filter)}</code> ({total_items} найдено)" if current_filter else ""
+        text = (
+            f"∅ <b>Каталог моделей: {self._provider_label(provider)}</b>\n"
+            f"⌖ <b>Активная модель:</b> <code>{utils.escape_html(active_model)}</code>\n"
+            f"⬡ <b>Источник:</b> {status_dot} {source_label} ({raw_count} всего){filter_str}\n"
+            f"⌖ <b>Профиль:</b> <code>{utils.escape_html(str(self.config['model_profile']))}</code> · <b>Auto:</b> <code>{'on' if self.config['auto_model'] else 'off'}</code>\n\n"
+            f"<i>▼ Нажмите на модель, чтобы переключить:</i>"
+        )
+
+        text = self._maybe_clean_symbols(text)
+        if self.config.get("clean_symbols_mode", False):
+            for r in buttons:
+                for b in r:
+                    b["text"] = self._clean_symbols_filter(b.get("text", ""))
+        try:
+            if isinstance(entity, Message):
+                await self.inline.form(text=text, message=entity, reply_markup=buttons)
+            elif isinstance(entity, InlineCall):
+                await entity.edit(text=text, reply_markup=buttons)
+            elif hasattr(entity, "edit"):
+                await entity.edit(text=text, reply_markup=buttons)
+        except Exception as e:
+            logger.warning(f"Error rendering models menu: {e}")
+            if isinstance(entity, Message):
+                await utils.answer(entity, text)
+
+    async def _render_providers_menu(self, uid: str, entity):
+        data = getattr(self, "models_menu_cache", {}).get(uid)
+        if not data:
+            return
+        current_provider = self._normalize_provider_name(data["provider"])
+        providers = self.CORE_PROVIDER_ORDER
+        buttons = []
+        row = []
+        for prov in providers:
+            label = self._provider_label(prov)
+            mark = "✓ " if prov == current_provider else ""
+            row.append({"text": f"{mark}{label}", "data": f"gemini:gmod:prov_sel:{uid}:{prov}"})
+            if len(row) == 2:
+                buttons.append(row)
+                row = []
+        if row:
+            buttons.append(row)
+        buttons.append([
+            {"text": "⬅️ Назад к моделям", "data": f"gemini:gmod:back:{uid}"},
+            {"text": "✗ Закрыть", "data": f"gemini:close:{uid}"},
+        ])
+        text = (
+            "⬡ <b>Выбор провайдера API</b>\n\n"
+            f"Текущий активный: <b>{self._provider_label(current_provider)}</b>\n"
+            "<i>Выберите провайдера для загрузки его моделей через API (curl):</i>"
+        )
+        if isinstance(entity, InlineCall):
+            await entity.edit(text=text, reply_markup=buttons)
+        elif hasattr(entity, "edit"):
+            try: await entity.edit(text=text, reply_markup=buttons)
+            except Exception: pass
+
+    async def _get_provider_model_catalog(self, provider: str) -> list:
+        models, _, _ = await self._fetch_provider_models_via_curl(provider)
+        return models
+
+    async def _fetch_provider_models_via_curl(self, provider: str, force_refresh: bool = False) -> tuple:
+        provider = self._normalize_provider_name(provider)
+        if not hasattr(self, "_provider_models_api_cache") or not isinstance(self._provider_models_api_cache, dict):
+            self._provider_models_api_cache = {}
+
+        if not force_refresh and provider in self._provider_models_api_cache:
+            entry = self._provider_models_api_cache[provider]
+            if time.time() - entry.get("time", 0) < 300:
+                return entry["models"], entry["source_label"], entry["is_live"]
+
+        raw_models = []
+        source_label = ""
+        is_live = False
+
+        proxy = self.config.get("proxy") or None
+        connector = None
+        req_proxy = proxy
+        if proxy and proxy.startswith(("socks4://", "socks5://", "http://", "https://")):
+            try:
+                from aiohttp_socks import ProxyConnector
+                connector = ProxyConnector.from_url(proxy)
+                req_proxy = None
+            except Exception:
+                req_proxy = proxy
+
+        try:
+            async with aiohttp.ClientSession(connector=connector) as session:
+                # 1. Google Gemini
+                if provider == "google":
+                    keys = self._keys_for("google")
+                    if keys:
+                        for k in keys:
+                            try:
+                                url = f"https://generativelanguage.googleapis.com/v1beta/models?key={k}"
+                                async with session.get(url, proxy=req_proxy, timeout=aiohttp.ClientTimeout(total=15)) as resp:
+                                    if resp.status == 200:
+                                        data = await resp.json()
+                                        m_list = [
+                                            m.get("name", "").split("/")[-1]
+                                            for m in data.get("models", [])
+                                            if "generateContent" in m.get("supportedGenerationMethods", ["generateContent"])
+                                        ]
+                                        if m_list:
+                                            raw_models = sorted(m_list)
+                                            source_label = "Google REST API (curl)"
+                                            is_live = True
+                                            break
+                            except Exception:
+                                continue
+                    if not raw_models and GOOGLE_AVAILABLE and keys:
+                        try:
+                            client = genai.Client(api_key=keys[0])
+                            models_obj = await asyncio.to_thread(client.models.list)
+                            listed = sorted({m.name.split("/")[-1] for m in models_obj if getattr(m, "name", None)})
+                            if listed:
+                                raw_models = listed
+                                source_label = "Google GenAI SDK"
+                                is_live = True
+                        except Exception:
+                            pass
+
+                # 2. OpenRouter
+                elif provider == "openrouter":
+                    keys = self._get_openrouter_keys()
+                    headers = {"Authorization": f"Bearer {keys[0]}"} if keys else {}
+                    headers["HTTP-Referer"] = "https://github.com/kgpix"
+                    headers["X-Title"] = "Gemini Hikka Module"
+                    url = "https://openrouter.ai/api/v1/models"
+                    try:
+                        async with session.get(url, headers=headers, proxy=req_proxy, timeout=aiohttp.ClientTimeout(total=20)) as resp:
+                            if resp.status == 200:
+                                data = await resp.json()
+                                items = [m.get("id") for m in data.get("data", []) if m.get("id")]
+                                if items:
+                                    raw_models = sorted(items)
+                                    source_label = "OpenRouter API (curl)"
+                                    is_live = True
+                    except Exception as e:
+                        logger.warning(f"OpenRouter models fetch error: {e}")
+
+                # 3. OpenAI
+                elif provider == "openai":
+                    keys = self._get_openai_keys()
+                    if keys:
+                        for k in keys:
+                            try:
+                                url = "https://api.openai.com/v1/models"
+                                headers = {"Authorization": f"Bearer {k}"}
+                                async with session.get(url, headers=headers, proxy=req_proxy, timeout=aiohttp.ClientTimeout(total=15)) as resp:
+                                    if resp.status == 200:
+                                        data = await resp.json()
+                                        items = [m.get("id") for m in data.get("data", []) if m.get("id")]
+                                        chat = [m for m in items if any(t in m.lower() for t in ("gpt", "o1", "o3", "chatgpt"))]
+                                        others = [m for m in items if m not in chat and not any(t in m.lower() for t in ("whisper", "tts", "dall-e", "embedding", "moderation", "babbage", "davinci"))]
+                                        raw_models = sorted(chat) + sorted(others)
+                                        source_label = "OpenAI API (curl)"
+                                        is_live = True
+                                        break
+                            except Exception:
+                                continue
+
+                # 4. DeepSeek
+                elif provider == "deepseek":
+                    keys = self._get_deepseek_keys()
+                    if keys:
+                        for k in keys:
+                            try:
+                                url = "https://api.deepseek.com/models"
+                                headers = {"Authorization": f"Bearer {k}"}
+                                async with session.get(url, headers=headers, proxy=req_proxy, timeout=aiohttp.ClientTimeout(total=15)) as resp:
+                                    if resp.status == 200:
+                                        data = await resp.json()
+                                        items = [m.get("id") for m in data.get("data", []) if m.get("id")]
+                                        if items:
+                                            raw_models = sorted(items)
+                                            source_label = "DeepSeek API (curl)"
+                                            is_live = True
+                                            break
+                            except Exception:
+                                continue
+
+                # 5. Groq
+                elif provider == "groq":
+                    keys = self._keys_for("groq")
+                    if keys:
+                        for k in keys:
+                            try:
+                                url = "https://api.groq.com/openai/v1/models"
+                                headers = {"Authorization": f"Bearer {k}"}
+                                async with session.get(url, headers=headers, proxy=req_proxy, timeout=aiohttp.ClientTimeout(total=15)) as resp:
+                                    if resp.status == 200:
+                                        data = await resp.json()
+                                        items = [m.get("id") for m in data.get("data", []) if m.get("id") and m.get("active", True)]
+                                        if items:
+                                            raw_models = sorted(items)
+                                            source_label = "Groq API (curl)"
+                                            is_live = True
+                                            break
+                            except Exception:
+                                continue
+
+                # 6. Mistral
+                elif provider == "mistral":
+                    keys = self._keys_for("mistral")
+                    if keys:
+                        for k in keys:
+                            try:
+                                url = "https://api.mistral.ai/v1/models"
+                                headers = {"Authorization": f"Bearer {k}"}
+                                async with session.get(url, headers=headers, proxy=req_proxy, timeout=aiohttp.ClientTimeout(total=15)) as resp:
+                                    if resp.status == 200:
+                                        data = await resp.json()
+                                        items = [m.get("id") for m in data.get("data", []) if m.get("id")]
+                                        if items:
+                                            raw_models = sorted(items)
+                                            source_label = "Mistral API (curl)"
+                                            is_live = True
+                                            break
+                            except Exception:
+                                continue
+
+                # 7. Together AI
+                elif provider == "together":
+                    keys = self._keys_for("together")
+                    if keys:
+                        for k in keys:
+                            try:
+                                url = "https://api.together.xyz/v1/models"
+                                headers = {"Authorization": f"Bearer {k}"}
+                                async with session.get(url, headers=headers, proxy=req_proxy, timeout=aiohttp.ClientTimeout(total=15)) as resp:
+                                    if resp.status == 200:
+                                        data = await resp.json()
+                                        items = data if isinstance(data, list) else data.get("data", [])
+                                        chat = [m.get("id") for m in items if isinstance(m, dict) and m.get("id") and m.get("type") in ("chat", "language")]
+                                        all_m = [m.get("id") for m in items if isinstance(m, dict) and m.get("id")]
+                                        raw_models = sorted(chat) if chat else sorted(all_m)
+                                        source_label = "Together AI API (curl)"
+                                        is_live = True
+                                        break
+                            except Exception:
+                                continue
+
+                # 8. Cerebras
+                elif provider == "cerebras":
+                    keys = self._keys_for("cerebras")
+                    if keys:
+                        for k in keys:
+                            try:
+                                url = "https://api.cerebras.ai/v1/models"
+                                headers = {"Authorization": f"Bearer {k}"}
+                                async with session.get(url, headers=headers, proxy=req_proxy, timeout=aiohttp.ClientTimeout(total=15)) as resp:
+                                    if resp.status == 200:
+                                        data = await resp.json()
+                                        items = [m.get("id") for m in data.get("data", []) if m.get("id")]
+                                        if items:
+                                            raw_models = sorted(items)
+                                            source_label = "Cerebras API (curl)"
+                                            is_live = True
+                                            break
+                            except Exception:
+                                continue
+
+                # 9. xAI Grok
+                elif provider == "xai":
+                    keys = self._keys_for("xai")
+                    if keys:
+                        for k in keys:
+                            try:
+                                url = "https://api.x.ai/v1/models"
+                                headers = {"Authorization": f"Bearer {k}"}
+                                async with session.get(url, headers=headers, proxy=req_proxy, timeout=aiohttp.ClientTimeout(total=15)) as resp:
+                                    if resp.status == 200:
+                                        data = await resp.json()
+                                        items = [m.get("id") for m in data.get("data", []) if m.get("id")]
+                                        if items:
+                                            raw_models = sorted(items)
+                                            source_label = "xAI Grok API (curl)"
+                                            is_live = True
+                                            break
+                            except Exception:
+                                continue
+
+                # 10. Nvidia NIM
+                elif provider == "nvidia":
+                    keys = self._keys_for("nvidia")
+                    if keys:
+                        for k in keys:
+                            try:
+                                url = "https://integrate.api.nvidia.com/v1/models"
+                                headers = {"Authorization": f"Bearer {k}"}
+                                async with session.get(url, headers=headers, proxy=req_proxy, timeout=aiohttp.ClientTimeout(total=15)) as resp:
+                                    if resp.status == 200:
+                                        data = await resp.json()
+                                        items = [m.get("id") for m in data.get("data", []) if m.get("id")]
+                                        if items:
+                                            raw_models = sorted(items)
+                                            source_label = "Nvidia NIM API (curl)"
+                                            is_live = True
+                                            break
+                            except Exception:
+                                continue
+
+                # 11. HuggingFace
+                elif provider == "huggingface":
+                    keys = self._get_huggingface_keys()
+                    headers = {"Authorization": f"Bearer {keys[0]}"} if keys else {}
+                    # Try HF router first
+                    try:
+                        url = "https://router.huggingface.co/v1/models"
+                        async with session.get(url, headers=headers, proxy=req_proxy, timeout=aiohttp.ClientTimeout(total=15)) as resp:
+                            if resp.status == 200:
+                                data = await resp.json()
+                                items = [m.get("id") for m in data.get("data", []) if m.get("id")]
+                                if items:
+                                    raw_models = sorted(items)
+                                    source_label = "HuggingFace Router API (curl)"
+                                    is_live = True
+                    except Exception:
+                        pass
+                    # If not, try HF hub API
+                    if not raw_models:
+                        try:
+                            url = "https://huggingface.co/api/models?pipeline_tag=text-generation&sort=trendingScore&direction=-1&limit=80"
+                            async with session.get(url, headers=headers, proxy=req_proxy, timeout=aiohttp.ClientTimeout(total=15)) as resp:
+                                if resp.status == 200:
+                                    data = await resp.json()
+                                    items = [m.get("id") for m in data if isinstance(m, dict) and m.get("id")]
+                                    if items:
+                                        raw_models = items
+                                        source_label = "HuggingFace Hub API (curl)"
+                                        is_live = True
+                        except Exception:
+                            pass
+
+                # 12. Custom
+                elif provider == "custom":
+                    keys = self._keys_for("custom")
+                    url = self._custom_models_endpoint()
+                    if url:
+                        headers = {"Authorization": f"Bearer {keys[0]}"} if keys else {}
+                        try:
+                            async with session.get(url, headers=headers, proxy=req_proxy, timeout=aiohttp.ClientTimeout(total=15)) as resp:
+                                if resp.status == 200:
+                                    data = await resp.json()
+                                    items = []
+                                    if isinstance(data, dict):
+                                        if "data" in data and isinstance(data["data"], list):
+                                            items = [m.get("id") for m in data["data"] if isinstance(m, dict) and m.get("id")]
+                                        elif "models" in data and isinstance(data["models"], list):
+                                            items = [m.get("name") or m.get("model") for m in data["models"] if isinstance(m, dict)]
+                                    elif isinstance(data, list):
+                                        items = [m.get("id") for m in data if isinstance(m, dict) and m.get("id")]
+                                    if items:
+                                        raw_models = sorted(items)
+                                        source_label = f"{self._provider_label('custom')} API (curl)"
+                                        is_live = True
+                        except Exception as e:
+                            logger.warning(f"Custom models fetch error: {e}")
+
+                # 13. Other OpenAI compatible endpoints
+                elif provider in self.OPENAI_COMPAT_ENDPOINTS:
+                    chat_url = self.OPENAI_COMPAT_ENDPOINTS[provider]
+                    models_url = chat_url.replace("/chat/completions", "/models")
+                    keys = self._keys_for(provider)
+                    headers = {"Authorization": f"Bearer {keys[0]}"} if keys else {}
+                    try:
+                        async with session.get(models_url, headers=headers, proxy=req_proxy, timeout=aiohttp.ClientTimeout(total=15)) as resp:
+                            if resp.status == 200:
+                                data = await resp.json()
+                                items = [m.get("id") for m in data.get("data", []) if isinstance(m, dict) and m.get("id")]
+                                if items:
+                                    raw_models = sorted(items)
+                                    source_label = f"{self._provider_label(provider)} API (curl)"
+                                    is_live = True
+                    except Exception:
+                        pass
+
+        except Exception as e:
+            logger.warning(f"Failed to fetch models for {provider}: {e}")
+
+        # Deduplicate and sanitize
+        clean = []
+        seen = set()
+        for m in raw_models:
+            if not m:
+                continue
+            s = str(m).strip()
+            if s and s not in seen:
+                seen.add(s)
+                clean.append(s)
+
+        if not clean:
+            clean = self._provider_curated_models(provider)
+            source_label = "∅ Локальный каталог (без ключа / офлайн)"
+            is_live = False
+
+        self._provider_models_api_cache[provider] = {
+            "models": clean,
+            "source_label": source_label,
+            "is_live": is_live,
+            "time": time.time(),
+        }
+        return clean, source_label, is_live
 
     @loader.command()
     async def mres(self, message: Message):
@@ -4272,7 +4966,6 @@ class magent(loader.Module):
             await utils.answer(message, self.strings["memory_fully_cleared"].format(len(keys_to_delete)))
         else:
             await utils.answer(message, self.strings["gres_usage"])
-
 
     @loader.callback_handler()
     async def gemini_callback_handler(self, call: InlineCall):
