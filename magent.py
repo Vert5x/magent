@@ -97,10 +97,1148 @@ MODEL_PROFILE_CHOICES = ("auto", "balanced", "fast", "reasoning", "coding", "vis
 
 # requires: google-genai google-api-core pytz markdown_it_py aiohttp-socks
 
+# =========================================================================
+# KeyTest module-level data & checkers (by @kgpix) — used by .keytest/.kprov
+# =========================================================================
+# ---------------------------------------------------------------------------
+# Balance parsers for GET account/balance endpoints -> (verdict, balance_str)
+# ---------------------------------------------------------------------------
+
+_ELEVEN_TIER = {
+    "free": "Free", "starter": "Starter", "creator": "Creator", "independent": "Independent",
+    "growing": "Growing", "growing_business": "Growing", "pro": "Pro",
+    "scale": "Scale", "scale_2024_08_10": "Scale", "business": "Business",
+    "enterprise": "Enterprise", "trial": "Trial",
+}
+def _bal_elevenlabs(j):
+    used = j.get("character_count") or 0
+    lim = j.get("character_limit") or 0
+    tier = j.get("tier") or ""
+    status = j.get("status") or ""
+    if not lim:
+        return ("valid", None, _ELEVEN_TIER.get(tier, tier) or None)
+    rem = lim - used
+    info_parts = [_ELEVEN_TIER.get(tier, tier)] if tier else []
+    if status and status not in ("active", "free", "trialing"):
+        info_parts.append(status)
+    return (("no_balance" if rem <= 0 else "valid"), "%s chars" % rem, " · ".join(info_parts) or None)
+
+
+def _bal_leonardo(j):
+    ud = (j.get("user_details") or [{}])
+    d = ud[0] if ud else {}
+    tok = d.get("apiSubscriptionTokens", d.get("subscriptionTokens"))
+    if tok is None:
+        return ("valid", None)
+    return (("no_balance" if tok == 0 else "valid"), "%s tokens" % tok)
+
+
+def _bal_recraft(j):
+    c = j.get("credits")
+    return ("valid", None) if c is None else (("no_balance" if c == 0 else "valid"), "%s credits" % c)
+
+
+def _bal_runway(j):
+    c = j.get("creditBalance")
+    return ("valid", None) if c is None else (("no_balance" if c == 0 else "valid"), "%s credits" % c)
+
+
+def _bal_heygen(j):
+    q = (j.get("data") or {}).get("remaining_quota")
+    return ("valid", None) if q is None else (("no_balance" if q == 0 else "valid"), "%s" % q)
+
+
+def _bal_removebg(j):
+    try:
+        attrs = j["data"]["attributes"]
+        c = attrs["credits"]["total"]
+        sub = attrs["credits"].get("subscription", 0)
+        payg = attrs["credits"].get("payg", 0)
+        sizes = attrs.get("api", {}).get("sizes", "")
+        info_parts = []
+        if sub:
+            info_parts.append("sub %s" % sub)
+        if payg:
+            info_parts.append("payg %s" % payg)
+        if sizes:
+            info_parts.append(sizes)
+        return (("no_balance" if c == 0 else "valid"), "%s credits" % c, " · ".join(info_parts) or None)
+    except Exception:  # noqa: BLE001
+        return ("valid", None, None)
+
+
+def _bal_revai(j):
+    b = j.get("total_balance")  # balance_seconds is deprecated (always 0)
+    email = j.get("email") or ""
+    info = email or None
+    return ("valid", None, info) if b is None else (("no_balance" if b == 0 else "valid"), "%s" % b, info)
+
+
+def _bal_moonshot(j):
+    d = j.get("data") or {}
+    b = d.get("available_balance")
+    if b is None:
+        return ("valid", None, None)
+    v = "no_balance" if b <= 0 else "valid"
+    bal = "$%s" % b
+    voucher = d.get("voucher_balance") or 0
+    cash = d.get("cash_balance") or 0
+    info = None
+    if voucher or cash:
+        info = "voucher $%s · cash $%s" % (voucher, cash)
+    return (v, bal, info)
+
+
+def _bal_stepfun(j):
+    b = j.get("balance")
+    if b is None:
+        return ("valid", None, None)
+    plan_type = j.get("type") or ""
+    info = plan_type.capitalize() if plan_type else None
+    vchr = j.get("total_voucher_balance") or 0
+    if vchr:
+        info = (info + " · " if info else "") + "voucher %s" % vchr
+    return (("no_balance" if b == 0 else "valid"), "%s" % b, info)
+
+
+def _bal_siliconflow(j):
+    d = j.get("data") or {}
+    b = d.get("totalBalance")
+    if b is None:
+        return ("valid", None, None)
+    v = "no_balance" if str(b) in ("0", "0.0") else "valid"
+    name = d.get("name") or ""
+    email = d.get("email") or ""
+    status = d.get("status") or ""
+    info_parts = [x for x in [name, email] if x]
+    if status and status != "normal":
+        info_parts.append(status)
+    return (v, "%s" % b, " · ".join(info_parts) or None)
+
+
+def _bal_novita(j):
+    b = j.get("availableBalance")
+    if b is None:
+        return ("valid", None, None)
+    v = "no_balance" if b <= 0 else "valid"
+    pending = j.get("pendingCharges") or 0
+    info = "pending $%.2f" % (pending / 10000) if pending else None
+    return (v, "$%.2f" % (b / 10000), info)
+
+
+def _bal_vercel(j):
+    b = j.get("balance")
+    if b is None:
+        return ("valid", None, None)
+    used = j.get("total_used")
+    info = "used $%s" % used if used else None
+    return (("no_balance" if str(b) in ("0", "0.0") else "valid"), "$%s" % b, info)
+
+
+def _bal_bfl(j):
+    c = j.get("credits")
+    return ("valid", None) if c is None else (("no_balance" if c == 0 else "valid"), "%s credits" % c)
+
+
+def _bal_segmind(j):
+    c = j.get("credits")
+    return ("valid", None) if c is None else (("no_balance" if c == 0 else "valid"), "%s credits" % c)
+
+
+def _bal_photoroom(j):
+    imgs = j.get("images") or {}
+    a = imgs.get("available")
+    if a is None:
+        return ("valid", None, None)
+    plan = j.get("plan") or ""
+    sub = imgs.get("subscription")
+    info_parts = [plan] if plan else []
+    if sub is not None:
+        info_parts.append("sub %s" % sub)
+    return (("no_balance" if a == 0 else "valid"), "%s images" % a, " · ".join(info_parts) or None)
+
+
+def _bal_luma(j):
+    c = j.get("credit_balance")
+    return ("valid", None, None) if c is None else (("no_balance" if c <= 0 else "valid"), "$%.2f" % (c / 100), None)
+
+
+def _bal_vidu(j):
+    rem = j.get("remains") or []
+    total = sum((r.get("credit_remain") or 0) for r in rem)
+    return ("no_balance" if total == 0 else "valid"), "%s credits" % total
+
+
+def _info_replicate(j):
+    uname = j.get("username", "?")
+    utype = j.get("type", "user")
+    return ("valid", uname, utype if utype != "user" else None)
+
+
+def _info_hf(j):
+    name = j.get("name", "?")
+    is_pro = j.get("isPro", False)
+    info = "Pro" if is_pro else None
+    return ("valid", "@%s" % name, info)
+
+
+def _bal_hyperbolic(j):
+    c = j.get("credits")
+    if c is None:
+        return ("valid", None)
+    usd = c / 100
+    return ("no_balance" if usd <= 0 else "valid"), ("$%.2f" % usd if usd else None)
+
+
+def _bal_deepinfra(j):
+    # stripe_balance: negative = credit available, positive = debt owed
+    c = (j.get("checklist") or {}).get("stripe_balance")
+    name = j.get("name") or j.get("display_name") or ""
+    email = j.get("email") or ""
+    billing = (j.get("checklist") or {}).get("billing_type") or ""
+    is_biz = j.get("is_business_account") or False
+    info_parts = [x for x in [name, email] if x]
+    if billing:
+        info_parts.append(billing)
+    elif is_biz:
+        info_parts.append("business")
+    info = " · ".join(info_parts) or None
+    if c is None:
+        return ("valid", None, info)
+    if c < 0:
+        return ("valid", "$%.2f" % abs(c), info)
+    if c == 0:
+        return ("no_balance", None, info)
+    return ("no_balance", "debt $%.2f" % c, info)
+
+
+def _bal_chutes(j):
+    b = j.get("balance")
+    if b is None:
+        return ("valid", None, None)
+    username = j.get("username") or ""
+    return ("no_balance" if b <= 0 else "valid"), ("$%.2f" % b if b else None), (username or None)
+
+
+# ---------------------------------------------------------------------------
+# Provider registry.  cat: chat|infra|image|video|voice|music|embed
+# Entries with "method" are checkable; entries without it are listing-only.
+# method: chat|embed|probe|get|special ; auth: bearer|anthropic|xi|token|raw|
+#         xkey|xapikey|apikey|cartesia|runway
+# ---------------------------------------------------------------------------
+
+SPECS = {
+    # ===== model labs / chat =====
+    "openai": {"n": "OpenAI", "cat": "chat", "method": "chat", "url": "https://api.openai.com/v1/chat/completions", "model": "gpt-5.5", "auth": "bearer", "prefix": ["sk-proj-", "sk-svcacct-"]},
+    "anthropic": {"n": "Anthropic", "cat": "chat", "method": "chat", "url": "https://api.anthropic.com/v1/messages", "model": "claude-opus-4-8", "auth": "anthropic", "prefix": ["sk-ant-"]},
+    "google": {"n": "Google Gemini", "cat": "chat", "method": "special", "prefix": ["AIza"]},
+    "xai": {"n": "xAI Grok", "cat": "chat", "method": "chat", "url": "https://api.x.ai/v1/chat/completions", "model": "grok-4.3", "auth": "bearer", "prefix": ["xai-"]},
+    "deepseek": {"n": "DeepSeek", "cat": "chat", "method": "special"},
+    "mistral": {"n": "Mistral", "cat": "chat", "method": "chat", "url": "https://api.mistral.ai/v1/chat/completions", "model": "mistral-medium-latest", "auth": "bearer"},
+    "cohere": {"n": "Cohere", "cat": "chat", "method": "special"},
+    "perplexity": {"n": "Perplexity", "cat": "chat", "method": "chat", "url": "https://api.perplexity.ai/chat/completions", "model": "sonar-reasoning-pro", "auth": "bearer", "prefix": ["pplx-"]},
+    "ai21": {"n": "AI21", "cat": "chat", "method": "chat", "url": "https://api.ai21.com/studio/v1/chat/completions", "model": "jamba-large", "auth": "bearer"},
+    "moonshot": {"n": "Moonshot Kimi", "cat": "chat", "method": "get", "url": "https://api.moonshot.ai/v1/users/me/balance", "model": "kimi-k2.6", "auth": "bearer", "balance": _bal_moonshot},
+    "qwen": {"n": "Qwen / DashScope", "cat": "chat", "method": "chat", "url": "https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions", "model": "qwen3-max", "auth": "bearer"},
+    "zhipu": {"n": "Zhipu GLM", "cat": "chat", "method": "chat", "url": "https://api.z.ai/api/paas/v4/chat/completions", "model": "glm-5.1", "auth": "bearer"},
+    "minimax": {"n": "MiniMax", "cat": "chat", "method": "special"},
+    "baichuan": {"n": "Baichuan", "cat": "chat", "method": "chat", "url": "https://api.baichuan-ai.com/v1/chat/completions", "model": "Baichuan4", "auth": "bearer"},
+    "stepfun": {"n": "StepFun", "cat": "chat", "method": "get", "url": "https://api.stepfun.com/v1/accounts", "model": "step-3", "auth": "bearer", "balance": _bal_stepfun},
+    "reka": {"n": "Reka", "cat": "chat", "method": "chat", "url": "https://api.reka.ai/v1/chat/completions", "model": "reka-flash", "auth": "xapikey"},
+    "writer": {"n": "Writer Palmyra", "cat": "chat", "method": "chat", "url": "https://api.writer.com/v1/chat/completions", "model": "palmyra-x5", "auth": "bearer"},
+    "yi": {"n": "01.AI Yi", "cat": "chat", "method": "chat", "url": "https://api.lingyiwanwu.com/v1/chat/completions", "model": "yi-large", "auth": "bearer"},
+    "hunyuan": {"n": "Tencent Hunyuan", "cat": "chat", "method": "chat", "url": "https://api.hunyuan.cloud.tencent.com/v1/chat/completions", "model": "hunyuan-turbos-latest", "auth": "bearer"},
+    "qianfan": {"n": "Baidu ERNIE", "cat": "chat", "method": "chat", "url": "https://qianfan.baidubce.com/v2/chat/completions", "model": "ernie-5.0", "auth": "bearer"},
+    "spark": {"n": "iFlytek Spark", "cat": "chat", "method": "chat", "url": "https://spark-api-open.xf-yun.com/v1/chat/completions", "model": "4.0Ultra", "auth": "bearer"},
+    "upstage": {"n": "Upstage Solar", "cat": "chat", "method": "chat", "url": "https://api.upstage.ai/v1/chat/completions", "model": "solar-pro2", "auth": "bearer", "prefix": ["up_"]},
+    "twoai": {"n": "Two AI SUTRA", "cat": "chat", "method": "chat", "url": "https://api.two.ai/v2/chat/completions", "model": "sutra-v2", "auth": "bearer"},
+    "nscale": {"n": "Nscale", "cat": "infra", "method": "chat", "url": "https://inference.api.nscale.com/v1/chat/completions", "model": "Qwen/Qwen3-235B-A22B-Instruct", "auth": "bearer"},
+    "nous": {"n": "Nous Research", "cat": "infra", "method": "chat", "url": "https://inference-api.nousresearch.com/v1/chat/completions", "model": "Hermes-4-405B", "auth": "bearer"},
+    "krutrim": {"n": "Krutrim", "cat": "infra", "method": "chat", "url": "https://cloud.krutrim.com/api/v1/chat/completions", "model": "DeepSeek-R1", "auth": "bearer"},
+    "atoma": {"n": "Atoma", "cat": "infra", "method": "chat", "url": "https://api.atoma.network/v1/chat/completions", "model": "deepseek-ai/DeepSeek-R1", "auth": "bearer"},
+
+    # ===== inference clouds / routers =====
+    "openrouter": {"n": "OpenRouter", "cat": "infra", "method": "special", "prefix": ["sk-or-"]},
+    "groq": {"n": "Groq", "cat": "infra", "method": "chat", "url": "https://api.groq.com/openai/v1/chat/completions", "model": "openai/gpt-oss-120b", "auth": "bearer", "prefix": ["gsk_"]},
+    "cerebras": {"n": "Cerebras", "cat": "infra", "method": "chat", "url": "https://api.cerebras.ai/v1/chat/completions", "model": "gpt-oss-120b", "auth": "bearer", "prefix": ["csk-"]},
+    "fireworks": {"n": "Fireworks", "cat": "infra", "method": "chat", "url": "https://api.fireworks.ai/inference/v1/chat/completions", "model": "accounts/fireworks/models/kimi-k2-instruct", "auth": "bearer", "prefix": ["fw_"]},
+    "nvidia": {"n": "NVIDIA NIM", "cat": "infra", "method": "chat", "url": "https://integrate.api.nvidia.com/v1/chat/completions", "model": "deepseek-ai/deepseek-r1", "auth": "bearer", "prefix": ["nvapi-"]},
+    "together": {"n": "Together AI", "cat": "infra", "method": "chat", "url": "https://api.together.xyz/v1/chat/completions", "model": "moonshotai/Kimi-K2-Instruct", "auth": "bearer"},
+    "sambanova": {"n": "SambaNova", "cat": "infra", "method": "chat", "url": "https://api.sambanova.ai/v1/chat/completions", "model": "DeepSeek-V3.1", "auth": "bearer"},
+    "deepinfra": {"n": "DeepInfra", "cat": "infra", "method": "get", "url": "https://api.deepinfra.com/v1/me?checklist=true", "model": "deepseek-ai/DeepSeek-V3", "auth": "bearer", "balance": _bal_deepinfra},
+    "novita": {"n": "Novita", "cat": "infra", "method": "get", "url": "https://api.novita.ai/openapi/v1/billing/balance/detail", "model": "deepseek/deepseek-v3", "auth": "bearer", "balance": _bal_novita},
+    "hyperbolic": {"n": "Hyperbolic", "cat": "infra", "method": "get", "url": "https://api.hyperbolic.xyz/v1/billing/get_current_balance", "model": "deepseek-ai/DeepSeek-V3", "auth": "bearer", "balance": _bal_hyperbolic},
+    "nebius": {"n": "Nebius AI", "cat": "infra", "method": "chat", "url": "https://api.studio.nebius.com/v1/chat/completions", "model": "deepseek-ai/DeepSeek-V3-0324", "auth": "bearer"},
+    "lambda": {"n": "Lambda", "cat": "infra", "method": "chat", "url": "https://api.lambda.ai/v1/chat/completions", "model": "deepseek-v3-0324", "auth": "bearer"},
+    "featherless": {"n": "Featherless", "cat": "infra", "method": "chat", "url": "https://api.featherless.ai/v1/chat/completions", "model": "deepseek-ai/DeepSeek-V3.2", "auth": "bearer"},
+    "siliconflow": {"n": "SiliconFlow", "cat": "infra", "method": "get", "url": "https://api.siliconflow.cn/v1/user/info", "model": "deepseek-ai/DeepSeek-V3", "auth": "bearer", "balance": _bal_siliconflow},
+    "klusterai": {"n": "Kluster AI", "cat": "infra", "method": "chat", "url": "https://api.kluster.ai/v1/chat/completions", "model": "deepseek-ai/DeepSeek-V3", "auth": "bearer"},
+    "inferencenet": {"n": "Inference.net", "cat": "infra", "method": "chat", "url": "https://api.inference.net/v1/chat/completions", "model": "deepseek/deepseek-v3", "auth": "bearer"},
+    "aimlapi": {"n": "AI/ML API", "cat": "infra", "method": "chat", "url": "https://api.aimlapi.com/v1/chat/completions", "model": "gpt-5.5", "auth": "bearer"},
+    "github": {"n": "GitHub Models", "cat": "infra", "method": "chat", "url": "https://models.github.ai/inference/chat/completions", "model": "openai/gpt-4.1", "auth": "bearer", "prefix": ["ghp_", "github_pat_", "gho_"]},
+    "friendli": {"n": "FriendliAI", "cat": "infra", "method": "chat", "url": "https://api.friendli.ai/serverless/v1/chat/completions", "model": "deepseek-r1", "auth": "bearer", "prefix": ["flp_"]},
+    "chutes": {"n": "Chutes", "cat": "infra", "method": "get", "url": "https://api.chutes.ai/users/me", "model": "deepseek-ai/DeepSeek-V3-0324", "auth": "bearer", "prefix": ["cpk_"], "balance": _bal_chutes},
+    "vercel": {"n": "Vercel AI Gateway", "cat": "infra", "method": "get", "url": "https://ai-gateway.vercel.sh/v1/credits", "model": "-", "auth": "bearer", "prefix": ["vck_"], "balance": _bal_vercel},
+    "volcengine": {"n": "Volcengine Ark", "cat": "infra", "method": "chat", "url": "https://ark.cn-beijing.volces.com/api/v3/chat/completions", "model": "doubao-seed-1-6-251015", "auth": "bearer"},
+    "modelscope": {"n": "ModelScope", "cat": "infra", "method": "chat", "url": "https://api-inference.modelscope.cn/v1/chat/completions", "model": "Qwen/Qwen3-235B-A22B", "auth": "bearer"},
+    "targon": {"n": "Targon", "cat": "infra", "method": "chat", "url": "https://api.targon.com/v1/chat/completions", "model": "deepseek-ai/DeepSeek-V3", "auth": "bearer"},
+    "gmi": {"n": "GMI Cloud", "cat": "infra", "method": "chat", "url": "https://api.gmi-serving.com/v1/chat/completions", "model": "deepseek-ai/DeepSeek-V3", "auth": "bearer"},
+    "scaleway": {"n": "Scaleway", "cat": "infra", "method": "chat", "url": "https://api.scaleway.ai/v1/chat/completions", "model": "deepseek-r1", "auth": "bearer"},
+    "ovh": {"n": "OVHcloud AI", "cat": "infra", "method": "chat", "url": "https://oai.endpoints.kepler.ai.cloud.ovh.net/v1/chat/completions", "model": "DeepSeek-R1-Distill-Llama-70B", "auth": "bearer"},
+    "requesty": {"n": "Requesty", "cat": "infra", "method": "chat", "url": "https://router.requesty.ai/v1/chat/completions", "model": "openai/gpt-4o", "auth": "bearer"},
+    "glama": {"n": "Glama", "cat": "infra", "method": "chat", "url": "https://glama.ai/api/gateway/openai/v1/chat/completions", "model": "gpt-4o", "auth": "bearer"},
+    "mancer": {"n": "Mancer", "cat": "infra", "method": "chat", "url": "https://neuro.mancer.tech/oai/v1/chat/completions", "model": "weaver", "auth": "bearer"},
+    "arliai": {"n": "Arli AI", "cat": "infra", "method": "chat", "url": "https://api.arliai.com/v1/chat/completions", "model": "Meta-Llama-3.1-8B-Instruct", "auth": "bearer"},
+    "avian": {"n": "Avian", "cat": "infra", "method": "chat", "url": "https://api.avian.io/v1/chat/completions", "model": "DeepSeek-R1", "auth": "bearer"},
+    "netmind": {"n": "NetMind", "cat": "infra", "method": "chat", "url": "https://api.netmind.ai/inference-api/openai/v1/chat/completions", "model": "deepseek-ai/DeepSeek-V3", "auth": "bearer"},
+    "clarifai": {"n": "Clarifai", "cat": "infra", "method": "chat", "url": "https://api.clarifai.com/v2/ext/openai/v1/chat/completions", "model": "gpt-oss-120b", "auth": "bearer"},
+
+    # ===== embeddings / rerank =====
+    "voyage": {"n": "Voyage AI", "cat": "embed", "method": "embed", "url": "https://api.voyageai.com/v1/embeddings", "model": "voyage-3-large", "auth": "bearer", "prefix": ["pa-"], "body": {"model": "voyage-3-large", "input": "hi"}},
+    "jina": {"n": "Jina AI", "cat": "embed", "method": "special", "model": "jina-embeddings-v3", "prefix": ["jina_"]},
+    "mixedbread": {"n": "Mixedbread", "cat": "embed", "method": "embed", "url": "https://api.mixedbread.com/v1/embeddings", "model": "mxbai-embed-large-v1", "auth": "bearer", "prefix": ["mxb_"], "body": {"model": "mxbai-embed-large-v1", "input": ["hi"]}},
+    "nomic": {"n": "Nomic Atlas", "cat": "embed", "method": "get", "url": "https://api-atlas.nomic.ai/v1/user/", "model": "nomic-embed-text-v1.5", "auth": "bearer", "prefix": ["nk-"]},
+
+    # ===== voice / audio =====
+    "elevenlabs": {"n": "ElevenLabs", "cat": "voice", "method": "get", "url": "https://api.elevenlabs.io/v1/user/subscription", "model": "eleven_v3", "auth": "xi", "balance": _bal_elevenlabs},
+    "deepgram": {"n": "Deepgram", "cat": "voice", "method": "special"},
+    "assemblyai": {"n": "AssemblyAI", "cat": "voice", "method": "get", "url": "https://api.assemblyai.com/v2/account", "model": "universal", "auth": "raw"},
+    "cartesia": {"n": "Cartesia", "cat": "voice", "method": "get", "url": "https://api.cartesia.ai/voices?limit=1", "model": "sonic-2", "auth": "cartesia", "prefix": ["sk_car_"]},
+    "revai": {"n": "Rev AI", "cat": "voice", "method": "get", "url": "https://api.rev.ai/speechtotext/v1/account", "model": "-", "auth": "bearer", "balance": _bal_revai},
+    "resemble": {"n": "Resemble AI", "cat": "voice", "method": "get", "url": "https://app.resemble.ai/api/v2/projects?page=1", "model": "-", "auth": "bearer"},
+    "unrealspeech": {"n": "Unreal Speech", "cat": "voice", "method": "probe", "url": "https://api.v8.unrealspeech.com/stream", "model": "-", "auth": "bearer"},
+
+    # ===== image =====
+    "stability": {"n": "Stability AI", "cat": "image", "method": "special"},
+    "leonardo": {"n": "Leonardo AI", "cat": "image", "method": "get", "url": "https://cloud.leonardo.ai/api/rest/v1/me", "model": "phoenix", "auth": "bearer", "balance": _bal_leonardo},
+    "recraft": {"n": "Recraft", "cat": "image", "method": "get", "url": "https://external.api.recraft.ai/v1/users/me", "model": "recraftv3", "auth": "bearer", "balance": _bal_recraft},
+    "bfl": {"n": "Black Forest Labs", "cat": "image", "method": "get", "url": "https://api.bfl.ai/v1/credits", "model": "flux-2-pro", "auth": "xkey", "balance": _bal_bfl},
+    "ideogram": {"n": "Ideogram", "cat": "image", "method": "probe", "url": "https://api.ideogram.ai/v1/ideogram-v3/generate", "model": "ideogram-v3", "auth": "apikey"},
+    "removebg": {"n": "remove.bg", "cat": "image", "method": "get", "url": "https://api.remove.bg/v1.0/account", "model": "-", "auth": "xapikey", "balance": _bal_removebg},
+    "segmind": {"n": "Segmind", "cat": "image", "method": "get", "url": "https://api.segmind.com/v1/get-user-credits", "model": "-", "auth": "xapikey", "balance": _bal_segmind},
+    "photoroom": {"n": "PhotoRoom", "cat": "image", "method": "get", "url": "https://image-api.photoroom.com/v2/account", "model": "-", "auth": "xapikey", "balance": _bal_photoroom},
+    "clipdrop": {"n": "Clipdrop", "cat": "image", "method": "special"},
+    "deepai": {"n": "DeepAI", "cat": "image", "method": "probe", "url": "https://api.deepai.org/api/text2img", "model": "-", "auth": "apikey"},
+
+    # ===== video =====
+    "runwayml": {"n": "RunwayML", "cat": "video", "method": "get", "url": "https://api.dev.runwayml.com/v1/organization", "model": "gen-4", "auth": "runway", "prefix": ["key_"], "balance": _bal_runway},
+    "luma": {"n": "Luma Dream Machine", "cat": "video", "method": "get", "url": "https://api.lumalabs.ai/dream-machine/v1/credits", "model": "ray-3", "auth": "bearer", "prefix": ["luma-"], "balance": _bal_luma},
+    "heygen": {"n": "HeyGen", "cat": "video", "method": "get", "url": "https://api.heygen.com/v2/user/remaining_quota", "model": "-", "auth": "xapikey", "balance": _bal_heygen},
+    "synthesia": {"n": "Synthesia", "cat": "video", "method": "get", "url": "https://api.synthesia.io/v2/videos?limit=1", "model": "-", "auth": "raw"},
+    "tavus": {"n": "Tavus", "cat": "video", "method": "get", "url": "https://tavusapi.com/v2/replicas?limit=1", "model": "-", "auth": "xapikey"},
+    "vidu": {"n": "Vidu", "cat": "video", "method": "get", "url": "https://api.vidu.com/ent/v2/credits", "model": "-", "auth": "token", "balance": _bal_vidu},
+
+    # ===== generic account checks (kept) =====
+    "replicate": {"n": "Replicate", "cat": "infra", "method": "get", "url": "https://api.replicate.com/v1/account", "model": "-", "auth": "bearer", "prefix": ["r8_"], "balance": _info_replicate},
+    "huggingface": {"n": "Hugging Face", "cat": "infra", "method": "get", "url": "https://huggingface.co/api/whoami-v2", "model": "-", "auth": "bearer", "prefix": ["hf_"], "balance": _info_hf},
+}
+
+# ---- listing-only providers (shown in .kprov, need special creds to check) ----
+_LIST = {
+    # chat / infra
+    "cloudflare": ("Cloudflare Workers AI", "infra"), "azureopenai": ("Azure OpenAI", "infra"),
+    "vertexai": ("Google Vertex AI", "infra"), "bedrock": ("AWS Bedrock", "infra"),
+    "watsonx": ("IBM watsonx", "infra"), "databricks": ("Databricks", "infra"),
+    "snowflake": ("Snowflake Cortex", "infra"), "sensenova": ("SenseTime SenseNova", "chat"),
+    "alephalpha": ("Aleph Alpha", "chat"), "nlpcloud": ("NLP Cloud", "chat"),
+    "predibase": ("Predibase", "infra"), "baseten": ("Baseten", "infra"),
+    "runpod": ("RunPod", "infra"), "lepton": ("Lepton AI", "infra"),
+    "crusoe": ("Crusoe", "infra"), "koyeb": ("Koyeb", "infra"), "gcore": ("Gcore", "infra"),
+    "hyperstack": ("Hyperstack", "infra"), "you": ("You.com", "chat"),
+    "portkey": ("Portkey", "infra"), "helicone": ("Helicone", "infra"),
+    "martian": ("Martian", "infra"), "edenai": ("Eden AI", "infra"),
+    "openpipe": ("OpenPipe", "infra"), "parasail": ("Parasail", "infra"),
+    "anyscale": ("Anyscale", "infra"), "kuaishou": ("Kuaishou KwaiYii", "chat"),
+    "360ai": ("360 Zhinao", "chat"), "doubao": ("ByteDance Doubao", "chat"),
+    # image
+    "fal": ("fal.ai", "image"), "civitai": ("Civitai", "image"),
+    "freepik": ("Freepik / Mystic", "image"), "scenario": ("Scenario", "image"),
+    "picsart": ("Picsart", "image"), "tensorart": ("Tensor.art", "image"),
+    "playground": ("Playground AI", "image"), "krea": ("Krea", "image"),
+    "magnific": ("Magnific", "image"), "bria": ("Bria", "image"),
+    "getimg": ("Getimg.ai", "image"), "novelai": ("NovelAI", "image"),
+    "prodia": ("Prodia", "image"), "dezgo": ("Dezgo", "image"),
+    "modelslab": ("ModelsLab", "image"), "starryai": ("StarryAI", "image"),
+    "adobefirefly": ("Adobe Firefly", "image"), "vanceai": ("Vance AI", "image"),
+    "lightricks": ("Lightricks LTX", "image"), "midjourney": ("Midjourney", "image"),
+    "dalle": ("OpenAI DALL-E 3", "image"), "imagen": ("Google Imagen", "image"),
+    # video
+    "pika": ("Pika", "video"), "kling": ("Kling", "video"),
+    "hailuo": ("Hailuo (MiniMax)", "video"), "haiper": ("Haiper", "video"),
+    "did": ("D-ID", "video"), "hedra": ("Hedra", "video"),
+    "captions": ("Captions", "video"), "veo": ("Google Veo", "video"),
+    "sora": ("OpenAI Sora", "video"), "higgsfield": ("Higgsfield", "video"),
+    "viggle": ("Viggle", "video"), "deepbrain": ("DeepBrain AI", "video"),
+    "argil": ("Argil", "video"), "colossyan": ("Colossyan", "video"),
+    "genmo": ("Genmo Mochi", "video"), "wan": ("Alibaba Wan", "video"),
+    "seedance": ("ByteDance Seedance", "video"), "pixverse": ("PixVerse", "video"),
+    "domo": ("Domo AI", "video"), "pollo": ("Pollo AI", "video"),
+    # voice
+    "playht": ("PlayHT", "voice"), "hume": ("Hume AI", "voice"),
+    "gladia": ("Gladia", "voice"), "fishaudio": ("Fish Audio", "voice"),
+    "lmnt": ("LMNT", "voice"), "murf": ("Murf", "voice"),
+    "rime": ("Rime", "voice"), "speechify": ("Speechify", "voice"),
+    "neets": ("Neets", "voice"), "cambai": ("Camb.ai", "voice"),
+    "wellsaid": ("WellSaid", "voice"), "speechmatics": ("Speechmatics", "voice"),
+    "sesame": ("Sesame", "voice"), "kits": ("Kits AI", "voice"),
+    "narakeet": ("Narakeet", "voice"), "voicemaker": ("Voicemaker", "voice"),
+    "topmediai": ("TopMediai", "voice"), "whisper": ("OpenAI Whisper", "voice"),
+    "azurespeech": ("Azure Speech", "voice"), "googlestt": ("Google STT", "voice"),
+    # music
+    "suno": ("Suno", "music"), "udio": ("Udio", "music"),
+    "mubert": ("Mubert", "music"), "beatoven": ("Beatoven", "music"),
+    "loudly": ("Loudly", "music"), "sonauto": ("Sonauto", "music"),
+    "lalal": ("Lalal.ai", "music"), "riffusion": ("Riffusion", "music"),
+    "stableaudio": ("Stability Audio", "music"), "elevenmusic": ("ElevenLabs Music", "music"),
+}
+for _pid, (_n, _c) in _LIST.items():
+    SPECS.setdefault(_pid, {"n": _n, "cat": _c})
+
+# ---- extended catalog (listing-only) ----
+_LIST2 = {
+    # chat / LLM labs
+    "exaone": ("LG EXAONE", "chat"), "liquid": ("Liquid AI", "chat"), "sarvam": ("Sarvam AI", "chat"),
+    "arcee": ("Arcee AI", "chat"), "olmo": ("AllenAI OLMo", "chat"), "internlm": ("InternLM", "chat"),
+    "falcon": ("Falcon (TII)", "chat"), "jais": ("Jais (MBZUAI)", "chat"), "sealion": ("SEA-LION", "chat"),
+    "yandexgpt": ("YandexGPT", "chat"), "gigachat": ("GigaChat (Sber)", "chat"), "tbank": ("T-Bank T-Pro", "chat"),
+    "granite": ("IBM Granite", "chat"), "arctic": ("Snowflake Arctic", "chat"), "dbrx": ("Databricks DBRX", "chat"),
+    "phi": ("Microsoft Phi", "chat"), "nemotron": ("NVIDIA Nemotron", "chat"), "cogito": ("Deep Cogito", "chat"),
+    "goodfire": ("Goodfire Ember", "chat"), "llm360": ("LLM360 K2", "chat"), "minicpm": ("MiniCPM (ModelBest)", "chat"),
+    "pangu": ("Pangu (Huawei)", "chat"), "telechat": ("TeleChat", "chat"), "skywork": ("Skywork", "chat"),
+    "inflection": ("Inflection Pi", "chat"), "characterai": ("Character.AI", "chat"), "poe": ("Poe (Quora)", "chat"),
+    "huggingchat": ("HuggingChat", "chat"), "tng": ("TNG DeepSeek R1T", "chat"), "erniebot": ("ERNIE Bot", "chat"),
+    # inference clouds / gateways
+    "modal": ("Modal", "infra"), "beam": ("Beam Cloud", "infra"), "cerebrium": ("Cerebrium", "infra"),
+    "salad": ("Salad Cloud", "infra"), "vastai": ("Vast.ai", "infra"), "tensordock": ("TensorDock", "infra"),
+    "datacrunch": ("DataCrunch", "infra"), "paperspace": ("Paperspace", "infra"), "coreweave": ("CoreWeave", "infra"),
+    "fluidstack": ("FluidStack", "infra"), "latitude": ("Latitude.sh", "infra"), "voltagepark": ("Voltage Park", "infra"),
+    "genesiscloud": ("Genesis Cloud", "infra"), "lamini": ("Lamini", "infra"), "notdiamond": ("Not Diamond", "infra"),
+    "kong": ("Kong AI Gateway", "infra"), "litellm": ("LiteLLM", "infra"), "keywordsai": ("Keywords AI", "infra"),
+    "langdock": ("Langdock", "infra"), "braintrust": ("Braintrust", "infra"), "cloudrift": ("Cloudrift", "infra"),
+    "hyperbee": ("Hyperbee", "infra"), "apipie": ("APIpie", "infra"), "shuttleai": ("Shuttle AI", "infra"),
+    "electronhub": ("ElectronHub", "infra"), "nagaai": ("NagaAI", "infra"), "zukijourney": ("Zukijourney", "infra"),
+    "cablyai": ("CablyAI", "infra"), "vsegpt": ("VseGPT", "infra"), "bothub": ("BotHub", "infra"),
+    "gptunnel": ("GPTunnel", "infra"), "aitunnel": ("AITUNNEL", "infra"), "proxyapi": ("ProxyAPI", "infra"),
+    "octoai": ("OctoAI", "infra"), "mysticai": ("Mystic.ai", "infra"), "pipelineai": ("Pipeline AI", "infra"),
+    # image
+    "runware": ("Runware", "image"), "wavespeed": ("WaveSpeed AI", "image"), "reve": ("Reve", "image"),
+    "photai": ("Phot.AI", "image"), "pixelcut": ("Pixelcut", "image"), "claid": ("Claid.ai", "image"),
+    "pebblely": ("Pebblely", "image"), "vyro": ("Imagine (Vyro)", "image"), "magespace": ("Mage.space", "image"),
+    "astria": ("Astria", "image"), "generatedphotos": ("Generated Photos", "image"), "letsenhance": ("Let's Enhance", "image"),
+    "hotpot": ("Hotpot.ai", "image"), "stockimg": ("Stockimg.ai", "image"), "neurallove": ("Neural.love", "image"),
+    "cutout": ("Cutout.pro", "image"), "goenhance": ("GoEnhance", "image"), "comfyicu": ("ComfyICU", "image"),
+    "runcomfy": ("RunComfy", "image"), "rundiffusion": ("RunDiffusion", "image"), "thinkdiffusion": ("ThinkDiffusion", "image"),
+    "seedream": ("Seedream (ByteDance)", "image"), "qwenimage": ("Qwen-Image", "image"), "hunyuanimage": ("Hunyuan Image", "image"),
+    "nanobanana": ("Nano Banana", "image"), "topaz": ("Topaz Labs", "image"), "stablecog": ("Stablecog", "image"),
+    "fluxpro": ("Flux Kontext", "image"), "krea2": ("Krea Image", "image"),
+    # video
+    "cogvideo": ("CogVideo (Zhipu)", "video"), "hunyuanvideo": ("Hunyuan Video", "video"), "marey": ("Marey (Moonvalley)", "video"),
+    "ltx": ("LTX (Lightricks)", "video"), "kreavideo": ("Krea Video", "video"), "elai": ("Elai.io", "video"),
+    "steveai": ("Steve AI", "video"), "fliki": ("Fliki", "video"), "invideo": ("InVideo", "video"),
+    "pictory": ("Pictory", "video"), "veed": ("VEED", "video"), "capcut": ("CapCut / Pippit", "video"),
+    "hourone": ("Hour One", "video"), "yepic": ("Yepic AI", "video"), "rephrase": ("Rephrase.ai", "video"),
+    "krikey": ("Krikey AI", "video"), "deepmotion": ("DeepMotion", "video"), "moveai": ("Move AI", "video"),
+    "wonderdynamics": ("Wonder Dynamics", "video"), "vozo": ("Vozo", "video"), "sieve": ("Sieve", "video"),
+    "decohere": ("Decohere", "video"), "dreamina": ("Dreamina (CapCut)", "video"), "lumalabs2": ("Luma Ray", "video"),
+    # voice / audio
+    "polly": ("Amazon Polly", "voice"), "watsontts": ("IBM Watson Speech", "voice"), "inworld": ("Inworld AI", "voice"),
+    "smallestai": ("Smallest.ai", "voice"), "vapi": ("Vapi", "voice"), "retell": ("Retell AI", "voice"),
+    "bland": ("Bland AI", "voice"), "vocode": ("Vocode", "voice"), "deepdub": ("Deepdub", "voice"),
+    "papercup": ("Papercup", "voice"), "respeecher": ("Respeecher", "voice"), "replicastudios": ("Replica Studios", "voice"),
+    "lovo": ("LOVO Genny", "voice"), "listnr": ("Listnr", "voice"), "podcastle": ("Podcastle", "voice"),
+    "descript": ("Descript", "voice"), "typecast": ("Typecast", "voice"), "fakeyou": ("FakeYou", "voice"),
+    "voicemod": ("Voicemod", "voice"), "speechki": ("Speechki", "voice"), "soniox": ("Soniox", "voice"),
+    "otter": ("Otter.ai", "voice"), "fireflies": ("Fireflies.ai", "voice"), "sonix": ("Sonix", "voice"),
+    "happyscribe": ("Happy Scribe", "voice"), "picovoice": ("Picovoice", "voice"), "playai": ("PlayAI", "voice"),
+    # music
+    "aiva": ("AIVA", "music"), "soundraw": ("Soundraw", "music"), "boomy": ("Boomy", "music"),
+    "soundful": ("Soundful", "music"), "splash": ("Splash", "music"), "aimi": ("Aimi", "music"),
+    "musicfy": ("Musicfy", "music"), "jenmusic": ("Jen (JenMusic)", "music"), "lemonaide": ("Lemonaide", "music"),
+    "moises": ("Moises", "music"), "audoai": ("Audo AI", "music"), "cassetteai": ("Cassette AI", "music"),
+    "musicgen": ("MusicGen (Meta)", "music"), "musicfx": ("MusicFX (Google)", "music"), "songr": ("SongR", "music"),
+    # embeddings / rerank
+    "pinecone": ("Pinecone Inference", "embed"), "contextual": ("Contextual AI", "embed"), "zeroentropy": ("ZeroEntropy", "embed"),
+    "marqo": ("Marqo", "embed"), "vectara": ("Vectara", "embed"), "superlinked": ("Superlinked", "embed"),
+    "baai": ("BAAI BGE", "embed"),
+    # search / retrieval
+    "exa": ("Exa", "search"), "tavily": ("Tavily", "search"), "serper": ("Serper", "search"),
+    "serpapi": ("SerpAPI", "search"), "brave": ("Brave Search", "search"), "linkup": ("Linkup", "search"),
+    "kagi": ("Kagi", "search"), "valyu": ("Valyu", "search"), "parallel": ("Parallel AI", "search"),
+    "jinasearch": ("Jina DeepSearch", "search"),
+    # OCR / documents / vision
+    "mistralocr": ("Mistral OCR", "doc"), "llamaparse": ("LlamaParse", "doc"), "unstructured": ("Unstructured.io", "doc"),
+    "mathpix": ("Mathpix", "doc"), "nanonets": ("Nanonets", "doc"), "reducto": ("Reducto", "doc"),
+    "documentai": ("Google Document AI", "doc"), "textract": ("AWS Textract", "doc"), "azuredi": ("Azure Doc Intelligence", "doc"),
+    "klippa": ("Klippa", "doc"), "docsumo": ("Docsumo", "doc"), "roboflow": ("Roboflow", "doc"),
+    "landingai": ("Landing AI", "doc"), "moondream": ("Moondream", "doc"), "chunkr": ("Chunkr", "doc"),
+    "omniai": ("OmniAI", "doc"), "datalab": ("Datalab Marker", "doc"), "extend": ("Extend", "doc"),
+    # agent tools / infra
+    "firecrawl": ("Firecrawl", "tools"), "scrapingbee": ("ScrapingBee", "tools"), "brightdata": ("Bright Data", "tools"),
+    "scrapingdog": ("ScrapingDog", "tools"), "zenrows": ("ZenRows", "tools"), "apify": ("Apify", "tools"),
+    "browserbase": ("Browserbase", "tools"), "browserless": ("Browserless", "tools"), "steel": ("Steel.dev", "tools"),
+    "hyperbrowser": ("Hyperbrowser", "tools"), "e2b": ("E2B", "tools"), "langsmith": ("LangSmith", "tools"),
+    "langfuse": ("Langfuse", "tools"), "phoenix": ("Arize Phoenix", "tools"), "composio": ("Composio", "tools"),
+    "llamacloud": ("LlamaCloud", "tools"), "agentops": ("AgentOps", "tools"), "weave": ("W&B Weave", "tools"),
+    "opik": ("Comet Opik", "tools"), "daily": ("Daily Pipecat", "tools"),
+}
+for _pid, (_n, _c) in _LIST2.items():
+    SPECS.setdefault(_pid, {"n": _n, "cat": _c})
+
+NAMES = {pid: s["n"] for pid, s in SPECS.items()}
+CATS = ("chat", "infra", "image", "video", "voice", "music", "embed", "search", "doc", "tools")
+
+PREFIX_MAP = []
+for _pid, _s in SPECS.items():
+    for _p in _s.get("prefix", []):
+        PREFIX_MAP.append((_p, _pid))
+PREFIX_MAP.sort(key=lambda x: -len(x[0]))
+
+# probe groups (validatable only)
+SK_DASH = ["openai", "deepseek", "moonshot", "qwen", "stability"]
+SK_UNDER = ["elevenlabs", "novita"]
+JWT_GROUP = ["minimax", "nebius", "hyperbolic"]
+DOT_GROUP = ["zhipu", "minimax"]
+LOOSE = [
+    "mistral", "cohere", "together", "sambanova", "ai21", "deepinfra", "reka",
+    "writer", "aimlapi", "lambda", "stepfun", "baichuan", "featherless",
+    "siliconflow", "klusterai", "inferencenet", "deepgram", "assemblyai",
+    "leonardo", "recraft", "heygen", "synthesia",
+]
+# extra candidates probed only when config "deep" is on
+DEEP_EXTRA = [
+    "yi", "hunyuan", "qianfan", "spark", "volcengine", "modelscope", "targon",
+    "gmi", "scaleway", "ovh", "requesty", "glama", "mancer",
+    "arliai", "avian", "netmind", "clarifai", "removebg", "revai", "resemble",
+    "tavus", "segmind", "photoroom", "clipdrop", "deepai", "vidu", "unrealspeech",
+    "bfl", "ideogram", "nscale", "nous", "twoai", "krutrim", "atoma",
+]
+
+AUTH_FAIL = ("invalid api key", "invalid_api_key", "incorrect api key", "unauthorized",
+             "authentication", "api key not valid", "invalid token", "could not validate")
+QUOTA = ("insufficient", "quota", "exceeded your current", "billing", "payment required",
+         "not enough", "balance", "no credit", "out of credit", "arrears")
+REGION = ("unsupported_country", "country", "region", "territory", "not available in your")
+
+_UUID = re.compile(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
+_FALKEY = re.compile(r"[0-9a-fA-F]{8,}:[0-9a-zA-Z]{16,}")
+_DOTKEY = re.compile(r"[0-9a-zA-Z]{16,}\.[A-Za-z0-9]{8,}")
+_TOKEN = re.compile(r"[A-Za-z0-9_\-]{20,}")
+
+
+def _auth_headers(spec, key):
+    a = spec.get("auth", "bearer")
+    h = {}
+    if a == "bearer":
+        h["Authorization"] = "Bearer " + key
+    elif a == "anthropic":
+        h["x-api-key"] = key
+        h["anthropic-version"] = "2023-06-01"
+    elif a == "xi":
+        h["xi-api-key"] = key
+    elif a == "token":
+        h["Authorization"] = "Token " + key
+    elif a == "raw":
+        h["Authorization"] = key
+    elif a == "xkey":
+        h["x-key"] = key
+    elif a == "xapikey":
+        h["X-Api-Key"] = key
+    elif a == "apikey":
+        h["Api-Key"] = key
+    elif a == "cartesia":
+        h["Authorization"] = "Bearer " + key
+        h["Cartesia-Version"] = "2024-11-13"
+    elif a == "runway":
+        h["Authorization"] = "Bearer " + key
+        h["X-Runway-Version"] = "2024-11-06"
+    if spec.get("method") in ("chat", "embed", "probe"):
+        h["Content-Type"] = "application/json"
+    return h
+
+
+def _interpret(status, text):
+    low = (text or "").lower()
+    if status == 200:
+        return ("valid", None)
+    if status == 401:
+        return ("invalid", None)
+    if status == 403:
+        return ("forbidden", None) if any(m in low for m in REGION) else ("invalid", None)
+    if status == 402:
+        return ("no_balance", None)
+    if status == 429:
+        return ("no_balance", None) if any(m in low for m in QUOTA) else ("rate_limited", None)
+    if status in (400, 404, 422):
+        if any(m in low for m in ("invalid api key", "invalid_api_key", "incorrect api key", "api key not valid", "unauthorized", "authentication")):
+            return ("invalid", None)
+        if any(m in low for m in QUOTA):
+            return ("no_balance", None)
+        return ("valid", "model")
+    if status == 529:
+        return ("valid", "overloaded")
+    if any(m in low for m in AUTH_FAIL):
+        return ("invalid", None)
+    return ("error", "http %s" % status)
+
+
+def _interpret_get(status, text):
+    low = (text or "").lower()
+    if status == 200:
+        return ("valid", None)
+    if status in (401, 407):
+        return ("invalid", None)
+    if status == 403:
+        return ("forbidden", None) if any(m in low for m in REGION) else ("invalid", None)
+    if status == 402:
+        return ("no_balance", None)
+    if status == 429:
+        return ("rate_limited", None)
+    if any(m in low for m in AUTH_FAIL):
+        return ("invalid", None)
+    return ("error", "http %s" % status)
+
+
+def _interpret_probe(status, text):
+    low = (text or "").lower()
+    if status == 401:
+        return ("invalid", None)
+    if status == 403:
+        return ("forbidden", None) if any(m in low for m in REGION) else ("invalid", None)
+    if status == 402:
+        return ("no_balance", None)
+    if status == 429:
+        return ("no_balance", None) if any(m in low for m in QUOTA) else ("rate_limited", None)
+    if status in (200, 400, 422):
+        if any(m in low for m in ("invalid api key", "unauthorized", "api key not valid")):
+            return ("invalid", None)
+        return ("valid", None)
+    return ("error", "http %s" % status)
+
+
+def _R(verdict, balance=None, model=None, detail=None, info=None):
+    return {"verdict": verdict, "balance": balance, "model": model, "detail": detail, "info": info}
+
+
+# Tier mappings: RPM (int) → tier label
+_ANTHROPIC_TIER_MAP = {50: "Tier 1", 1_000: "Tier 2", 2_000: "Tier 3", 4_000: "Tier 4"}
+_OPENAI_TIER_MAP    = {3: "Free",    500: "Tier 1",   5_000: "Tier 2",  10_000: "Tier 4",
+                       15_000: "Tier 5"}
+_GROQ_TIER_MAP      = {30: "Free",   300: "Developer"}
+_SAMBANOVA_TIER_MAP = {20: "Free",   60: "Developer", 240: "Developer"}
+_CEREBRAS_TIER_MAP  = {30: "Free Trial", 1_000: "Developer"}
+
+
+def _rpm_to_tier(rpm_val, tier_map, fallback_fn=None):
+    try:
+        r = int(rpm_val)
+    except (TypeError, ValueError):
+        return None
+    if r in tier_map:
+        return tier_map[r]
+    if fallback_fn:
+        return fallback_fn(r)
+    return None
+
+
+def _rate_info(headers, pid, resp_text, verdict):
+    """Map rate-limit response headers to tier label. Shows Tier N, not raw limits."""
+    if verdict not in ("valid", "no_balance", "rate_limited"):
+        return None
+    parts = []
+
+    if pid == "anthropic":
+        req = headers.get("anthropic-ratelimit-requests-limit")
+        tier = _rpm_to_tier(req, _ANTHROPIC_TIER_MAP,
+                            lambda r: ("Tier 1" if r <= 50 else
+                                       "Tier 2" if r <= 1_000 else
+                                       "Tier 3" if r <= 2_000 else "Tier 4"))
+        if tier:
+            parts.append(tier)
+        # service_tier from body (Priority Tier accounts only)
+        if resp_text:
+            try:
+                st = json.loads(resp_text).get("usage", {}).get("service_tier")
+                if st and st != "standard":
+                    parts.append(st)
+            except Exception:  # noqa: BLE001
+                pass
+
+    elif pid == "openai":
+        req = headers.get("x-ratelimit-limit-requests")
+        tier = _rpm_to_tier(req, _OPENAI_TIER_MAP,
+                            lambda r: ("Free"   if r <= 3    else
+                                       "Tier 1" if r <= 500  else
+                                       "Tier 2" if r <= 5_000 else
+                                       "Tier 4" if r <= 10_000 else "Tier 5"))
+        if tier:
+            parts.append(tier)
+
+    elif pid == "groq":
+        req = headers.get("x-ratelimit-limit-requests")
+        tier = _rpm_to_tier(req, _GROQ_TIER_MAP,
+                            lambda r: "Free" if r <= 30 else "Developer")
+        if tier:
+            parts.append(tier)
+
+    elif pid == "cerebras":
+        req = headers.get("x-ratelimit-limit-requests-day")
+        tier = _rpm_to_tier(req, _CEREBRAS_TIER_MAP,
+                            lambda r: "Free Trial" if r <= 30 else "Developer")
+        if tier:
+            parts.append(tier)
+
+    elif pid == "sambanova":
+        req = headers.get("x-ratelimit-limit-requests")
+        tier = _rpm_to_tier(req, _SAMBANOVA_TIER_MAP,
+                            lambda r: "Free" if r <= 20 else "Developer")
+        if tier:
+            parts.append(tier)
+
+    elif pid == "xai":
+        req = headers.get("x-ratelimit-limit-requests")
+        if req:
+            try:
+                r = int(req)
+                tier = ("Tier 0" if r <= 60   else
+                        "Tier 1" if r <= 500  else
+                        "Tier 2" if r <= 2_000 else
+                        "Tier 3" if r <= 8_000 else "Tier 4")
+                parts.append(tier)
+            except (TypeError, ValueError):
+                pass
+
+    return " · ".join(parts) if parts else None
+
+
+async def _chat(session, key, spec, timeout, pid=None):
+    payload = {"model": spec["model"], "messages": [{"role": "user", "content": "hi"}], "max_tokens": 1}
+    try:
+        async with session.post(spec["url"], json=payload, headers=_auth_headers(spec, key),
+                                timeout=aiohttp.ClientTimeout(total=timeout)) as r:
+            text = await r.text()
+            v, d = _interpret(r.status, text)
+            info = _rate_info(r.headers, pid or "", text, v)
+            return _R(v, None, spec["model"], d, info)
+    except asyncio.TimeoutError:
+        return _R("error", None, spec.get("model"), "timeout")
+    except Exception as e:  # noqa: BLE001
+        return _R("error", None, spec.get("model"), str(e)[:80])
+
+
+async def _embed(session, key, spec, timeout):
+    try:
+        async with session.post(spec["url"], json=spec["body"], headers=_auth_headers(spec, key),
+                                timeout=aiohttp.ClientTimeout(total=timeout)) as r:
+            v, d = _interpret(r.status, await r.text())
+            return _R(v, None, spec["model"], d)
+    except asyncio.TimeoutError:
+        return _R("error", None, spec.get("model"), "timeout")
+    except Exception as e:  # noqa: BLE001
+        return _R("error", None, spec.get("model"), str(e)[:80])
+
+
+async def _probe(session, key, spec, timeout):
+    try:
+        async with session.post(spec["url"], json={}, headers=_auth_headers(spec, key),
+                                timeout=aiohttp.ClientTimeout(total=timeout)) as r:
+            v, d = _interpret_probe(r.status, await r.text())
+            return _R(v, None, spec.get("model"), d)
+    except asyncio.TimeoutError:
+        return _R("error", None, spec.get("model"), "timeout")
+    except Exception as e:  # noqa: BLE001
+        return _R("error", None, spec.get("model"), str(e)[:80])
+
+
+async def _get(session, key, spec, timeout):
+    try:
+        async with session.get(spec["url"], headers=_auth_headers(spec, key),
+                               timeout=aiohttp.ClientTimeout(total=timeout)) as r:
+            text = await r.text()
+            v, d = _interpret_get(r.status, text)
+            bal = None
+            info = None
+            if v == "valid" and spec.get("balance"):
+                try:
+                    result = spec["balance"](json.loads(text))
+                    if len(result) == 3:
+                        bv, bal, info = result
+                    else:
+                        bv, bal = result
+                    if bv:
+                        v = bv
+                except Exception:  # noqa: BLE001
+                    bal = None
+            return _R(v, bal, spec.get("model"), d, info)
+    except asyncio.TimeoutError:
+        return _R("error", None, spec.get("model"), "timeout")
+    except Exception as e:  # noqa: BLE001
+        return _R("error", None, spec.get("model"), str(e)[:80])
+
+
+async def _deepseek(session, key, timeout):
+    try:
+        async with session.get("https://api.deepseek.com/user/balance",
+                               headers={"Authorization": "Bearer " + key},
+                               timeout=aiohttp.ClientTimeout(total=timeout)) as r:
+            if r.status == 200:
+                d = await r.json(content_type=None)
+                infos = d.get("balance_infos") or []
+                bal = "%s %s" % (infos[0].get("total_balance"), infos[0].get("currency")) if infos else None
+                return _R("valid" if d.get("is_available") else "no_balance", bal, "deepseek-v4-pro")
+            v, dt = _interpret_get(r.status, await r.text())
+            return _R(v, None, "deepseek-v4-pro", dt)
+    except asyncio.TimeoutError:
+        return _R("error", None, "deepseek-v4-pro", "timeout")
+    except Exception as e:  # noqa: BLE001
+        return _R("error", None, "deepseek-v4-pro", str(e)[:80])
+
+
+async def _openrouter(session, key, timeout):
+    try:
+        async with session.get("https://openrouter.ai/api/v1/key",
+                               headers={"Authorization": "Bearer " + key},
+                               timeout=aiohttp.ClientTimeout(total=timeout)) as r:
+            if r.status == 200:
+                d = (await r.json(content_type=None)).get("data", {})
+                limit, usage = d.get("limit"), d.get("usage") or 0
+                rem = d.get("limit_remaining")
+                if rem is None and limit is not None:
+                    rem = limit - usage
+                bal, v = None, "valid"
+                if rem is not None:
+                    bal = "$%.2f" % rem
+                    if rem <= 0:
+                        v = "no_balance"
+                info_parts = []
+                if d.get("label"):
+                    info_parts.append(str(d["label"]))
+                if d.get("is_free_tier"):
+                    info_parts.append("free tier")
+                return _R(v, bal, "openrouter/auto", info=" · ".join(info_parts) or None)
+            v, dt = _interpret_get(r.status, await r.text())
+            return _R(v, None, "openrouter/auto", dt)
+    except asyncio.TimeoutError:
+        return _R("error", None, "openrouter/auto", "timeout")
+    except Exception as e:  # noqa: BLE001
+        return _R("error", None, "openrouter/auto", str(e)[:80])
+
+
+async def _stability(session, key, timeout):
+    try:
+        async with session.get("https://api.stability.ai/v1/user/balance",
+                               headers={"Authorization": "Bearer " + key, "Accept": "application/json"},
+                               timeout=aiohttp.ClientTimeout(total=timeout)) as r:
+            if r.status == 200:
+                c = (await r.json(content_type=None)).get("credits")
+                v = "valid" if (c is None or c > 0) else "no_balance"
+                return _R(v, None if c is None else "%s credits" % round(c, 2), "stable-image-ultra")
+            v, dt = _interpret_get(r.status, await r.text())
+            return _R(v, None, "stable-image-ultra", dt)
+    except asyncio.TimeoutError:
+        return _R("error", None, "stable-image-ultra", "timeout")
+    except Exception as e:  # noqa: BLE001
+        return _R("error", None, "stable-image-ultra", str(e)[:80])
+
+
+async def _google(session, key, timeout):
+    url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-pro:generateContent?key=" + key
+    body = {"contents": [{"parts": [{"text": "hi"}]}], "generationConfig": {"maxOutputTokens": 1}}
+    try:
+        async with session.post(url, json=body, headers={"Content-Type": "application/json"},
+                                timeout=aiohttp.ClientTimeout(total=timeout)) as r:
+            v, d = _interpret(r.status, await r.text())
+            return _R(v, None, "gemini-3.1-pro", d)
+    except asyncio.TimeoutError:
+        return _R("error", None, "gemini-3.1-pro", "timeout")
+    except Exception as e:  # noqa: BLE001
+        return _R("error", None, "gemini-3.1-pro", str(e)[:80])
+
+
+async def _minimax(session, key, timeout):
+    body = {"model": "MiniMax-Text-01", "messages": [{"role": "user", "content": "hi"}], "max_tokens": 1}
+    try:
+        async with session.post("https://api.minimaxi.com/v1/text/chatcompletion_v2", json=body,
+                                headers={"Authorization": "Bearer " + key, "Content-Type": "application/json"},
+                                timeout=aiohttp.ClientTimeout(total=timeout)) as r:
+            if r.status == 200:
+                code = ((await r.json(content_type=None)).get("base_resp") or {}).get("status_code", 0)
+                m = {0: "valid", 1004: "invalid", 1008: "no_balance", 1002: "rate_limited", 1039: "rate_limited"}
+                return _R(m.get(code, "valid"), None, "MiniMax-Text-01", "code %s" % code)
+            v, d = _interpret(r.status, await r.text())
+            return _R(v, None, "MiniMax-Text-01", d)
+    except asyncio.TimeoutError:
+        return _R("error", None, "MiniMax-Text-01", "timeout")
+    except Exception as e:  # noqa: BLE001
+        return _R("error", None, "MiniMax-Text-01", str(e)[:80])
+
+
+async def _jina(session, key, timeout):
+    url = "https://embeddings-dashboard-api.jina.ai/api/v1/api_key/user?api_key=" + key
+    try:
+        async with session.get(url, timeout=aiohttp.ClientTimeout(total=timeout)) as r:
+            if r.status == 200:
+                w = (await r.json(content_type=None)).get("wallet") or {}
+                tot = (w.get("total_balance") or 0) + (w.get("trial_balance") or 0)
+                bal = "%s tokens" % tot if w else None
+                return _R("no_balance" if (w and tot <= 0) else "valid", bal, "jina-embeddings-v3")
+            v, d = _interpret_get(r.status, await r.text())
+            return _R(v, None, "jina-embeddings-v3", d)
+    except asyncio.TimeoutError:
+        return _R("error", None, "jina-embeddings-v3", "timeout")
+    except Exception as e:  # noqa: BLE001
+        return _R("error", None, "jina-embeddings-v3", str(e)[:80])
+
+
+async def _cohere_check(session, key, timeout):
+    try:
+        async with session.post(
+            "https://api.cohere.com/v1/check-api-key",
+            json={},
+            headers={"Authorization": "Bearer " + key, "Content-Type": "application/json"},
+            timeout=aiohttp.ClientTimeout(total=timeout),
+        ) as r:
+            if r.status == 200:
+                d = await r.json(content_type=None)
+                if d.get("valid"):
+                    org = d.get("organization_id") or ""
+                    return _R("valid", None, "command-a-03-2025", info=("org: %s" % org) if org else None)
+                return _R("invalid", None, "command-a-03-2025")
+            v, dt = _interpret_get(r.status, await r.text())
+            return _R(v, None, "command-a-03-2025", dt)
+    except asyncio.TimeoutError:
+        return _R("error", None, "command-a-03-2025", "timeout")
+    except Exception as e:  # noqa: BLE001
+        return _R("error", None, "command-a-03-2025", str(e)[:80])
+
+
+async def _deepgram_check(session, key, timeout):
+    try:
+        async with session.get(
+            "https://api.deepgram.com/v1/projects",
+            headers={"Authorization": "Token " + key},
+            timeout=aiohttp.ClientTimeout(total=timeout),
+        ) as r:
+            if r.status != 200:
+                v, dt = _interpret_get(r.status, await r.text())
+                return _R(v, None, "nova-3", dt)
+            d = await r.json(content_type=None)
+            projects = d.get("projects") or []
+            if not projects:
+                return _R("valid", None, "nova-3")
+            proj_name = projects[0].get("name") or ""
+            pid = projects[0].get("project_id")
+        if pid:
+            async with session.get(
+                "https://api.deepgram.com/v1/projects/%s/balances" % pid,
+                headers={"Authorization": "Token " + key},
+                timeout=aiohttp.ClientTimeout(total=timeout),
+            ) as r2:
+                if r2.status == 200:
+                    bals = (await r2.json(content_type=None)).get("balances") or []
+                    if bals:
+                        amt = bals[0].get("amount")
+                        units = str(bals[0].get("units", "")).upper()
+                        bal = "%s %s" % (amt, units) if amt is not None else None
+                        v = "no_balance" if (amt is not None and amt <= 0) else "valid"
+                        return _R(v, bal, "nova-3", info=proj_name or None)
+        return _R("valid", None, "nova-3", info=proj_name or None)
+    except asyncio.TimeoutError:
+        return _R("error", None, "nova-3", "timeout")
+    except Exception as e:  # noqa: BLE001
+        return _R("error", None, "nova-3", str(e)[:80])
+
+
+async def _clipdrop_check(session, key, timeout):
+    try:
+        async with session.post(
+            "https://clipdrop-api.co/text-to-image/v1",
+            data={},
+            headers={"x-api-key": key},
+            timeout=aiohttp.ClientTimeout(total=timeout),
+        ) as r:
+            cr = r.headers.get("x-remaining-credits")
+            if r.status == 401:
+                return _R("invalid", None, "-")
+            if r.status in (200, 400, 422):
+                bal = "%s credits" % cr if cr else None
+                try:
+                    v = "no_balance" if (cr and int(cr) <= 0) else "valid"
+                except (ValueError, TypeError):
+                    v = "valid"
+                return _R(v, bal, "-")
+            v, dt = _interpret_probe(r.status, await r.text())
+            return _R(v, "%s credits" % cr if cr else None, "-", dt)
+    except asyncio.TimeoutError:
+        return _R("error", None, "-", "timeout")
+    except Exception as e:  # noqa: BLE001
+        return _R("error", None, "-", str(e)[:80])
+
+
+SPECIALS = {
+    "deepseek": _deepseek, "openrouter": _openrouter, "stability": _stability,
+    "google": _google, "minimax": _minimax, "jina": _jina,
+    "cohere": _cohere_check, "deepgram": _deepgram_check, "clipdrop": _clipdrop_check,
+}
+
+
+async def _check_one(pid, session, key, timeout):
+    spec = SPECS[pid]
+    m = spec.get("method")
+    if m == "special":
+        return await SPECIALS[pid](session, key, timeout)
+    if m == "chat":
+        return await _chat(session, key, spec, timeout, pid=pid)
+    if m == "embed":
+        return await _embed(session, key, spec, timeout)
+    if m == "probe":
+        return await _probe(session, key, spec, timeout)
+    if m == "get":
+        return await _get(session, key, spec, timeout)
+    return _R("unsupported")
+
+
+def _detect(key):
+    for p, pid in PREFIX_MAP:
+        if key.startswith(p):
+            return ("single", [pid])
+    if key.startswith("sk-"):
+        return ("probe", SK_DASH)
+    if key.startswith("sk_"):
+        return ("probe", SK_UNDER)
+    if key.startswith("eyJ"):
+        return ("probe", JWT_GROUP)
+    if _FALKEY.fullmatch(key):
+        return ("single", ["fal"])
+    if _UUID.fullmatch(key):
+        return ("probe", ["leonardo"])
+    if _DOTKEY.fullmatch(key):
+        return ("probe", DOT_GROUP)
+    if _TOKEN.fullmatch(key):
+        return ("loose", [])
+    return ("none", [])
+
+
+class _ProxySession:
+    """Thin wrapper around aiohttp.ClientSession that injects a proxy URL
+    into every GET/POST call (used for HTTP/HTTPS proxies)."""
+
+    def __init__(self, session: aiohttp.ClientSession, proxy: str):
+        self._s = session
+        self._p = proxy
+
+    def get(self, url, **kw):
+        kw.setdefault("proxy", self._p)
+        return self._s.get(url, **kw)
+
+    def post(self, url, **kw):
+        kw.setdefault("proxy", self._p)
+        return self._s.post(url, **kw)
+
+    def __getattr__(self, name):
+        return getattr(self._s, name)
+
+
+@contextlib.asynccontextmanager
+async def _make_session(proxy_url: str):
+    """Async context manager that yields a proxy-aware aiohttp session.
+
+    Supported proxy schemes:
+      http://  https://          — native aiohttp proxy (injected per-request)
+      socks4:// socks4a://       — via aiohttp-socks ProxyConnector
+      socks5:// socks5h://       — via aiohttp-socks ProxyConnector
+    """
+    proxy_url = (proxy_url or "").strip()
+
+    if not proxy_url:
+        async with aiohttp.ClientSession() as s:
+            yield s
+        return
+
+    scheme = proxy_url.split("://")[0].lower() if "://" in proxy_url else ""
+
+    if scheme in ("socks4", "socks4a", "socks5", "socks5h"):
+        try:
+            from aiohttp_socks import ProxyConnector  # noqa: PLC0415
+        except ImportError as exc:
+            raise RuntimeError(
+                "aiohttp-socks is required for SOCKS proxy. "
+                "Run: pip install aiohttp-socks"
+            ) from exc
+        connector = ProxyConnector.from_url(proxy_url)
+        async with aiohttp.ClientSession(connector=connector) as s:
+            yield s
+
+    elif scheme in ("http", "https"):
+        async with aiohttp.ClientSession() as s:
+            yield _ProxySession(s, proxy_url)
+
+    else:
+        raise ValueError(
+            "Unsupported proxy scheme %r. Use http/https/socks4/socks4a/socks5/socks5h." % scheme
+        )
+
+
 class magent(loader.Module):
     """CLI-агент на базе AI с поддержкой мульти-провайдеров, медиа и автономных системных инструментов."""
     strings = {
         "name": "magent",
+        # --- KeyTest (валидатор ключей) ---
+        "blk_error": "Ошибки",
+        "blk_invalid": "Невалидные",
+        "blk_no_balance": "Без баланса",
+        "blk_valid": "Рабочие",
+        "cat_chat": "Чат / LLM",
+        "cat_doc": "OCR / документы",
+        "cat_embed": "Эмбеддинги / реранк",
+        "cat_image": "Картинки",
+        "cat_infra": "Инференс / агрегаторы",
+        "cat_music": "Музыка",
+        "cat_search": "Поиск / retrieval",
+        "cat_tools": "Агентные инструменты",
+        "cat_video": "Видео",
+        "cat_voice": "Голос / аудио",
+        "cfg_deep": "зондировать доп. провайдеров для ключей без префикса (медленнее)",
+        "cfg_proxy": "URL прокси (http/https/socks4/socks4a/socks5/socks5h), пусто = без прокси",
+        "cfg_show_detail": "показывать строку с деталями",
+        "cfg_show_model": "показывать протестированную модель",
+        "cfg_timeout": "таймаут запроса, секунды",
+        "checkable": "проверяемых",
+        "checking": "<i>проверка</i>",
+        "checking_n": "<i>проверка {} ключей</i>",
+        "file_bad_enc": "Не удалось прочитать файл: не текстовый.",
+        "file_reading": "<i>читаю файл…</i>",
+        "file_too_big": "Файл слишком большой (макс 2 МБ).",
+        "kprov_hint": ".kprov &lt;тип&gt; — полный список одного типа",
+        "l_balance": "баланс",
+        "l_keys": "ключей",
+        "l_model": "модель",
+        "l_note": "примечание",
+        "l_proxy_ip": "внешний ip",
+        "l_proxy_ms": "пинг",
+        "l_proxy_url": "прокси",
+        "l_status": "статус",
+        "m_unknown": "неизвестно",
+        "more": "и ещё {}",
+        "no_key": "Ответь на сообщение с одним или несколькими API-ключами либо передай ключ аргументом.",
+        "providers": "Провайдеры",
+        "proxy_err": "ошибка прокси",
+        "proxy_ok": "прокси рабочий",
+        "proxy_testing": "<i>проверяю прокси…</i>",
+        "results_file": "keytest_results.txt",
+        "u_chars": "символов",
+        "u_credits": "кредитов",
+        "u_debt": "долг",
+        "u_images": "изображений",
+        "u_org": "орг:",
+        "u_tokens": "токенов",
+        "unknown": "Провайдер не определён или ключ невалиден.",
+        "v_error": "ошибка запроса",
+        "v_forbidden": "регион заблокирован",
+        "v_invalid": "невалидный",
+        "v_no_balance": "нет баланса",
+        "v_rate_limited": "лимит запросов",
+        "v_unsupported": "распознан (без проверки)",
+        "v_valid": "рабочий",
         "cfg_api_key_doc": "API ключи Google Gemini, разделенные запятой. Будут скрыты.",
         "cfg_model_name_doc": "Модель AI.",
         "cfg_buttons_doc": "Включить интерактивные кнопки.",
@@ -622,6 +1760,12 @@ class magent(loader.Module):
             loader.ConfigValue("rich_mode", True, "Включить Telegram Rich Mode (нативные детали <details>, thinking-блоки модели, таблицы и расширенная разметка).", validator=loader.validators.Boolean()),
             loader.ConfigValue("clean_symbols_mode", True, "Режим без эмодзи: заменять все эмодзи (в т.ч. премиум) на строгие текстовые Unicode-символы.", validator=loader.validators.Boolean()),
             loader.ConfigValue("show_tool_calls_in_response", True, "Показывать результаты инструментов и ход работы в итоговом ответе AI.", validator=loader.validators.Boolean()),
+            # --- KeyTest (валидатор ключей: .keytest / .kprov / .kproxytest) ---
+            loader.ConfigValue("kt_timeout", 20, "KeyTest: таймаут запроса проверки ключа, сек.", validator=loader.validators.Integer(minimum=5, maximum=120)),
+            loader.ConfigValue("kt_show_model", True, "KeyTest: показывать протестированную модель.", validator=loader.validators.Boolean()),
+            loader.ConfigValue("kt_show_detail", False, "KeyTest: показывать доп. строку с деталями.", validator=loader.validators.Boolean()),
+            loader.ConfigValue("kt_deep", False, "KeyTest: зондировать доп. провайдеров для ключей без префикса (медленнее).", validator=loader.validators.Boolean()),
+            loader.ConfigValue("kt_proxy", "", "KeyTest: URL прокси (http/https/socks4/socks4a/socks5/socks5h), пусто = без прокси.", validator=loader.validators.Hidden(loader.validators.String())),
         )
         self.prompt_presets = []
         self._tool_steps = []
@@ -638,6 +1782,8 @@ class magent(loader.Module):
         self.key_cooldowns = {}
         self.models_menu_cache = {}
         self._provider_models_api_cache = {}
+        self._kt_keys_cache = {}
+        self._pending_keys = {}
         self._current_tool_chat_id = None
         self._current_tool_message = None
         self.session_stats = {"requests": 0, "tokens_in": 0, "tokens_out": 0, "times": [], "start_time": time.time(), "by_provider": {}}
@@ -649,6 +1795,8 @@ class magent(loader.Module):
         self.me = await client.get_me()
         self.models_menu_cache = {}
         self._provider_models_api_cache = {}
+        self._pending_keys = {}
+        self._kt_keys_cache = {}
         api_key_str = self.config["api_key"]
         self.api_keys = [k.strip() for k in api_key_str.split(",") if k.strip()] if api_key_str else []
         def _get_db(k, default=None):
@@ -2947,10 +4095,6 @@ class magent(loader.Module):
                 return list(self.api_keys)
             raw = str(self.config.get("api_key") or "")
             return [k.strip() for k in raw.split(",") if k.strip()]
-
-    def _resolve_provider_api_key(self, provider: str) -> str:
-        keys = self._keys_for(provider)
-        return keys[0] if keys else ""
         if provider == "openrouter":
             return self._get_openrouter_keys()
         if provider == "huggingface":
@@ -2962,6 +4106,31 @@ class magent(loader.Module):
         cfg_name = "custom_api_key" if provider == "custom" else f"{provider}_api_key"
         raw = str(self.config.get(cfg_name) or "")
         return [k.strip() for k in raw.split(",") if k.strip()]
+
+    def _resolve_provider_api_key(self, provider: str) -> str:
+        provider = self._normalize_provider_name(provider)
+        keys = self._keys_for(provider)
+        if keys and keys[0] != "dummy":
+            return keys[0]
+        if provider == "custom":
+            return str(self.config.get("custom_api_key") or "")
+        return ""
+
+    @property
+    def commands(self) -> dict:
+        """Справочник команд для .help (только каноничные .m... команды)."""
+        raw = getattr(self, "heroku_commands", None)
+        if not raw:
+            try:
+                from ..types import get_commands
+                raw = get_commands(self)
+            except Exception:
+                raw = {}
+        return {
+            name: func
+            for name, func in (raw or {}).items()
+            if not (name.startswith("g") or name in ("msymbols", "keytest", "kprov", "kproxytest"))
+        }
 
     def _custom_endpoint(self) -> str:
         base = str(self.config.get("custom_base_url") or "").strip().rstrip("/")
@@ -2991,14 +4160,16 @@ class magent(loader.Module):
         if provider == "custom":
             url = self._custom_endpoint()
             if not url:
-                raise ValueError("▲ Не задан custom_base_url. <code>.cfg magent custom_base_url</code>")
+                raise ValueError("▲ <b>Не задан custom_base_url.</b>\nУкажите URL сервера в конфиге: <code>.cfg magent custom_base_url http://...</code> или переключите провайдера через <code>.mprovider</code>")
+            if not keys:
+                keys = ["dummy"]
         else:
             url = self.OPENAI_COMPAT_ENDPOINTS.get(provider)
             if not url:
                 raise ValueError(f"Unknown provider: {provider}")
-        if not keys:
-            cfg_name = "custom_api_key" if provider == "custom" else f"{provider}_api_key"
-            raise ValueError(f"▲ <b>API ключ для {self._provider_label(provider)} не настроен.</b>\n<code>.cfg magent {cfg_name}</code>")
+            if not keys:
+                cfg_name = f"{provider}_api_key"
+                raise ValueError(f"▲ <b>API ключ для {self._provider_label(provider)} не настроен.</b>\n<code>.cfg magent {cfg_name}</code>")
         return await self._send_openai_compatible(keys, url, model, messages, temperature, provider, tools=tools)
 
     async def _dispatch_openai(self, provider, model, messages, temperature, tools=None):
@@ -3015,15 +4186,23 @@ class magent(loader.Module):
     async def _send_openai_compatible(self, keys, url, model, messages, temperature, provider_name, extra_headers=None, tools=None):
         now = time.time()
         last_error = None
+        if provider_name == "custom":
+            for k in keys:
+                self.key_cooldowns.pop(f"{provider_name}:{k}", None)
+        elif all(self.key_cooldowns.get(f"{provider_name}:{k}", 0) > now for k in keys):
+            for k in keys:
+                self.key_cooldowns.pop(f"{provider_name}:{k}", None)
+
         async with aiohttp.ClientSession() as session:
             for api_key in keys:
                 cd_key = f"{provider_name}:{api_key}"
-                if self.key_cooldowns.get(cd_key, 0) > now:
+                if provider_name != "custom" and self.key_cooldowns.get(cd_key, 0) > now:
                     continue
                 headers = {
-                    "Authorization": f"Bearer {api_key}",
                     "Content-Type": "application/json",
                 }
+                if api_key and api_key != "dummy":
+                    headers["Authorization"] = f"Bearer {api_key}"
                 if extra_headers:
                     headers.update(extra_headers)
                 payload = {
@@ -3054,11 +4233,13 @@ class magent(loader.Module):
                                 except Exception:
                                     pass
                             if resp.status == 429:
-                                self._set_key_cooldown(cd_key, 3600)
+                                if provider_name != "custom":
+                                    self._set_key_cooldown(cd_key, 3600)
                                 last_error = ConnectionError(f"{provider_name} 429: rate limited")
                                 break
                             if resp.status in (401, 403):
-                                self._set_key_cooldown(cd_key, 86400 * 365)
+                                if provider_name != "custom":
+                                    self._set_key_cooldown(cd_key, 86400 * 365)
                                 last_error = ConnectionError(f"{provider_name} {resp.status}: invalid key")
                                 break
                             if resp.status != 200:
@@ -3095,9 +4276,11 @@ class magent(loader.Module):
                                 raise ValueError(f"{provider_name} empty content")
                             return str(content).strip(), result.get("usage", {})
                     except (aiohttp.ClientError, asyncio.TimeoutError) as e:
-                        last_error = e
+                        last_error = ConnectionError(f"{provider_name} connection error ({url}): {e}")
                         break
-        raise last_error or ValueError(f"All {provider_name} keys exhausted")
+        if last_error:
+            raise last_error
+        raise ValueError(f"Все ключи {self._provider_label(provider_name)} недоступны или исчерпали квоту.")
 
     async def _call_google_rest(self, model_name: str, prompt: str, input_image_bytes=None):
         keys = self._get_sorted_keys()
@@ -3367,6 +4550,11 @@ class magent(loader.Module):
         )
 
     @loader.command()
+    async def g(self, message: Message):
+        """[алиас]"""
+        await self.m(message)
+
+    @loader.command()
     async def mtools(self, message: Message):
         """[on/off] — Включить или отключить режим выполнения инструментов."""
         arg = utils.get_args_raw(message).strip().lower()
@@ -3382,6 +4570,11 @@ class magent(loader.Module):
         )))
 
     @loader.command()
+    async def gtools(self, message: Message):
+        """[алиас]"""
+        await self.mtools(message)
+
+    @loader.command()
     async def mt(self, message: Message):
         """[текст или reply] — Запрос к AI с выполнением инструментов (терминал, код, Telegram)."""
         if not self.config["enable_tools"]:
@@ -3390,6 +4583,11 @@ class magent(loader.Module):
                 state, self.config["tools_max_iters"], self.config["tools_shell_timeout"], self._provider_label()
             )))
         await self.m(message)
+
+    @loader.command()
+    async def gt(self, message: Message):
+        """[алиас]"""
+        await self.mt(message)
 
     @loader.command()
     async def mstat(self, message: Message):
@@ -3461,6 +4659,328 @@ class magent(loader.Module):
         await utils.answer(message, self._maybe_clean_symbols(text))
 
     @loader.command()
+    async def gstat(self, message: Message):
+        """[алиас]"""
+        await self.mstat(message)
+
+    # =========================================================================
+    # KeyTest — валидатор API-ключей (интегрирован из @kgpix KeyTest)
+    # =========================================================================
+    def _all_keys(self, text):
+        if not text:
+            return []
+        out, seen = [], set()
+        for tok in re.findall(r"[A-Za-z0-9_\-\.:]{16,}", text):
+            if tok in seen or _detect(tok)[0] == "none":
+                continue
+            seen.add(tok)
+            out.append(tok)
+        return out
+
+    async def _resolve(self, session, key, sem):
+        mode, ids = _detect(key)
+        if mode == "none":
+            return None
+        if mode == "single" and "method" not in SPECS[ids[0]]:
+            return (ids[0], _R("unsupported"))
+        if mode == "loose":
+            ids = LOOSE + (DEEP_EXTRA if self.config["kt_deep"] else [])
+        timeout = int(self.config["kt_timeout"])
+
+        async def guarded(pid):
+            async with sem:
+                try:
+                    return pid, await _check_one(pid, session, key, timeout)
+                except Exception as e:  # noqa: BLE001
+                    return pid, _R("error", None, None, str(e)[:60])
+
+        pairs = await asyncio.gather(*[guarded(pid) for pid in ids])
+        if mode == "single":
+            return pairs[0]
+        for pid, res in pairs:
+            if res["verdict"] in ("valid", "no_balance", "rate_limited"):
+                return (pid, res)
+        return None
+
+    def _vword(self, verdict):
+        return self.strings.get("v_" + verdict, verdict)
+
+    def _loc_units(self, s):
+        """Localize the English unit words produced by balance parsers."""
+        if not s:
+            return s
+        for en, key in (("credits", "u_credits"), ("chars", "u_chars"),
+                        ("tokens", "u_tokens"), ("images", "u_images"),
+                        ("debt", "u_debt"), ("org:", "u_org")):
+            if en in s:
+                s = s.replace(en, self.strings[key])
+        return s
+
+    def _format_single(self, pid, data):
+        verdict = data["verdict"]
+        lines = ["<b>%s</b> %s" % (self.strings["l_status"], self._vword(verdict))]
+        if verdict in ("valid", "no_balance", "rate_limited"):
+            if self.config["kt_show_model"] and data.get("model") and data["model"] != "-":
+                lines.append("<b>%s</b> %s" % (self.strings["l_model"], utils.escape_html(str(data["model"]))))
+            if data.get("balance"):
+                lines.append("<b>%s</b> %s" % (self.strings["l_balance"], utils.escape_html(self._loc_units(str(data["balance"])))))
+        if data.get("info"):
+            lines.append(utils.escape_html(str(data["info"])))
+        if self.config["kt_show_detail"] and data.get("detail"):
+            lines.append("<b>%s</b> %s" % (self.strings["l_note"], utils.escape_html(str(data["detail"]))))
+        return "<b>%s</b>\n<blockquote expandable>%s</blockquote>" % (
+            utils.escape_html(NAMES.get(pid, pid)), "\n".join(lines))
+
+    def _multi_entry(self, key, result):
+        """Return (block, text): block in valid|invalid|error, text = key + module answer."""
+        kcode = "<code>%s</code>" % utils.escape_html(key)
+        if result is None:
+            return "invalid", "%s\n%s" % (kcode, self.strings["m_unknown"])
+        pid, data = result
+        v = data["verdict"]
+        block = ("no_balance" if v == "no_balance"
+                 else "valid" if v in ("valid", "rate_limited")
+                 else "invalid" if v in ("invalid", "forbidden")
+                 else "error")
+        parts = [utils.escape_html(NAMES.get(pid, pid))]
+        if v not in ("valid", "invalid", "no_balance"):  # block header already conveys these
+            parts.append(self._vword(v))
+        if data.get("balance"):
+            parts.append(utils.escape_html(self._loc_units(str(data["balance"]))))
+        if data.get("info"):
+            parts.append(utils.escape_html(str(data["info"])))
+        return block, "%s\n%s" % (kcode, " · ".join(parts))
+
+    def _results_to_text(self, groups, extra):
+        """Plain-text version of results for .txt file output."""
+        _strip = re.compile(r"<[^>]+>")
+        _ents = (("&lt;", "<"), ("&gt;", ">"), ("&amp;", "&"))
+        def clean(s):
+            s = _strip.sub("", s)
+            for e, r in _ents:
+                s = s.replace(e, r)
+            return s.strip()
+        lines = []
+        for block, label in (("valid",      "blk_valid"),
+                              ("no_balance", "blk_no_balance"),
+                              ("invalid",    "blk_invalid"),
+                              ("error",      "blk_error")):
+            if not groups[block]:
+                continue
+            lines.append("[%s (%d)]" % (self.strings[label], len(groups[block])))
+            for entry in groups[block]:
+                lines.append(clean(entry))
+            lines.append("")
+        if extra:
+            lines.append(self.strings["more"].format(extra))
+        return "\n".join(lines).strip()
+
+    @loader.command(
+        ru_doc="[ключ] | проверить API-ключ(и) AI-провайдера по реплаю",
+        kk_doc="[кілт] | реплай арқылы AI-провайдердің API-кілт(тер)ін тексеру",
+    )
+    async def keytest(self, message):
+        """[key] | check an AI provider API key (or many) by reply or file"""
+        args = utils.get_args_raw(message)
+        source = args
+
+        if not source:
+            reply = await message.get_reply_message()
+            if reply:
+                if reply.document or reply.photo:
+                    # ---- file support ----
+                    doc = reply.document
+                    if doc and doc.size > 2 * 1024 * 1024:
+                        await utils.answer(
+                            message,
+                            "<blockquote>%s</blockquote>" % self.strings["file_too_big"],
+                        )
+                        return
+                    message = await utils.answer(message, self.strings["file_reading"])
+                    try:
+                        raw = await reply.download_media(bytes)
+                        source = raw.decode("utf-8", errors="ignore")
+                        if not source.strip():
+                            for enc in ("utf-16", "latin-1", "cp1251"):
+                                try:
+                                    source = raw.decode(enc, errors="ignore")
+                                    if source.strip():
+                                        break
+                                except Exception:  # noqa: BLE001
+                                    continue
+                    except Exception as e:  # noqa: BLE001
+                        await utils.answer(
+                            message,
+                            "<blockquote>%s</blockquote>"
+                            % self.strings["file_bad_enc"],
+                        )
+                        return
+                elif reply.raw_text:
+                    source = reply.raw_text
+
+        keys = self._all_keys(source)
+        if not keys:
+            await utils.answer(message, "<blockquote>%s</blockquote>" % self.strings["no_key"])
+            return
+
+        extra = 0
+        if len(keys) > 30:
+            extra, keys = len(keys) - 30, keys[:30]
+
+        message = await utils.answer(
+            message,
+            self.strings["checking"] if len(keys) == 1 else self.strings["checking_n"].format(len(keys)))
+
+        sem = asyncio.Semaphore(14)
+        try:
+            async with _make_session(self.config["kt_proxy"]) as session:
+                results = await asyncio.gather(*[self._resolve(session, k, sem) for k in keys])
+        except (ValueError, RuntimeError) as e:
+            await utils.answer(message, "<b>%s</b>\n<blockquote expandable>%s</blockquote>"
+                               % (self.strings["proxy_err"], utils.escape_html(str(e)[:200])))
+            return
+        except Exception as e:  # noqa: BLE001
+            await utils.answer(message, "<b>%s</b>\n<blockquote expandable>%s</blockquote>"
+                               % (self.strings["v_error"], utils.escape_html(str(e)[:120])))
+            return
+
+        if len(keys) == 1:
+            res = results[0]
+            if res is None:
+                await utils.answer(message, "<blockquote expandable>%s</blockquote>" % self.strings["unknown"])
+            else:
+                formatted_text = self._format_single(res[0], res[1])
+                pid, data = res
+                verdict = data.get("verdict")
+                prov = "google" if pid == "google" else pid
+                if verdict in ("valid", "rate_limited") and prov in self.CORE_PROVIDER_ORDER:
+                    if not hasattr(self, "_pending_keys") or not isinstance(self._pending_keys, dict):
+                        self._pending_keys = {}
+                    k_id = uuid.uuid4().hex[:8]
+                    now = time.time()
+                    self._pending_keys = {k: v for k, v in self._pending_keys.items() if now - v.get("time", 0) < 3600}
+                    self._pending_keys[k_id] = {
+                        "key": keys[0],
+                        "provider": prov,
+                        "time": now,
+                    }
+                    buttons = [
+                        [
+                            {"text": f"✓ Сохранить для {self._provider_label(prov)}", "data": f"gemini:kt_apply:{k_id}:save"},
+                            {"text": "✓ Сохранить и включить", "data": f"gemini:kt_apply:{k_id}:act"},
+                        ]
+                    ]
+                    try:
+                        return await self.inline.form(text=formatted_text, message=message, reply_markup=buttons)
+                    except Exception:
+                        return await utils.answer(message, formatted_text)
+                await utils.answer(message, formatted_text)
+            return
+
+        groups = {"valid": [], "no_balance": [], "invalid": [], "error": []}
+        for k, r in zip(keys, results):
+            block, line = self._multi_entry(k, r)
+            groups[block].append(line)
+
+        blocks = []
+        for block, label in (("valid", "blk_valid"), ("no_balance", "blk_no_balance"),
+                             ("invalid", "blk_invalid"), ("error", "blk_error")):
+            if groups[block]:
+                blocks.append("<b>%s (%d)</b>\n<blockquote expandable>%s</blockquote>"
+                              % (self.strings[label], len(groups[block]), "\n\n".join(groups[block])))
+        if extra:
+            blocks.append(self.strings["more"].format(extra))
+
+        out = "\n".join(blocks)
+        if len(out) > 3500:
+            import io
+            txt = self._results_to_text(groups, extra)
+            buf = io.BytesIO(txt.encode("utf-8"))
+            buf.name = self.strings["results_file"]
+            await utils.answer_file(message, buf)
+        else:
+            await utils.answer(message, out)
+
+    @loader.command(
+        ru_doc="| проверить текущий прокси",
+        kk_doc="| ағымдағы проксіні тексеру",
+    )
+    async def kproxytest(self, message):
+        """| test current proxy"""
+        from urllib.parse import urlparse  # noqa: PLC0415
+        proxy = (self.config.get("kt_proxy") or "").strip()
+        if not proxy:
+            return
+        p = urlparse(proxy)
+        has_creds = bool(p.username)
+        # With creds:    scheme://***@host   (hide creds + port, show host)
+        # Without creds: scheme://***        (hide everything — public/borrowed proxy)
+        if has_creds:
+            masked = "%s://***@%s" % (p.scheme, p.hostname or "")
+        else:
+            masked = "%s://***" % p.scheme
+        message = await utils.answer(message, self.strings["proxy_testing"])
+        t0 = time.perf_counter_ns()
+        try:
+            async with _make_session(proxy) as session:
+                async with session.get(
+                    "https://api.ipify.org?format=json",
+                    timeout=aiohttp.ClientTimeout(total=10),
+                ) as r:
+                    ms = (time.perf_counter_ns() - t0) // 1_000_000
+                    if r.status == 200:
+                        ip = (await r.json(content_type=None)).get("ip", "?")
+                        lines = [
+                            "<b>%s</b> %s" % (self.strings["l_proxy_url"], utils.escape_html(masked)),
+                        ]
+                        if has_creds:
+                            lines.append("<b>%s</b> %s" % (self.strings["l_proxy_ip"], utils.escape_html(ip)))
+                        lines.append("<b>%s</b> %s ms" % (self.strings["l_proxy_ms"], ms))
+                        await utils.answer(
+                            message,
+                            "<b>%s</b>\n<blockquote expandable>%s</blockquote>"
+                            % (self.strings["proxy_ok"], "\n".join(lines)),
+                        )
+                    else:
+                        await utils.answer(
+                            message,
+                            "<b>%s</b>\n<blockquote expandable>HTTP %d</blockquote>"
+                            % (self.strings["proxy_err"], r.status),
+                        )
+        except Exception as e:  # noqa: BLE001
+            await utils.answer(
+                message,
+                "<b>%s</b>\n<blockquote expandable>%s</blockquote>"
+                % (self.strings["proxy_err"], utils.escape_html(str(e)[:200])),
+            )
+
+    @loader.command(
+        ru_doc="[тип] | список провайдеров (без аргумента — сводка по типам)",
+        kk_doc="[түр] | провайдерлер тізімі (аргументсіз — түрлер бойынша қысқаша)",
+    )
+    async def kprov(self, message):
+        """[type] | list providers (no arg = summary by type)"""
+        arg = utils.get_args_raw(message).strip().lower()
+        checkable = sum(1 for s in SPECS.values() if "method" in s)
+        if arg in CATS:
+            names = sorted(s["n"] for s in SPECS.values() if s.get("cat") == arg)
+            chk = sum(1 for s in SPECS.values() if s.get("cat") == arg and "method" in s)
+            header = "<b>%s — %d · %s %d</b>" % (
+                self.strings["cat_" + arg], len(names), self.strings["checkable"], chk)
+            await utils.answer(message, "%s\n<blockquote expandable>%s</blockquote>"
+                               % (header, utils.escape_html(", ".join(names))))
+            return
+        lines = []
+        for c in CATS:
+            n = sum(1 for s in SPECS.values() if s.get("cat") == c)
+            if n:
+                lines.append("<b>%s</b> <code>%s</code> — %d" % (self.strings["cat_" + c], c, n))
+        header = "<b>%s: %d · %s %d</b>" % (
+            self.strings["providers"], len(SPECS), self.strings["checkable"], checkable)
+        await utils.answer(message, "%s\n<blockquote expandable>%s\n\n%s</blockquote>"
+                           % (header, "\n".join(lines), self.strings["kprov_hint"]))
+
+    @loader.command()
     async def mask(self, message: Message):
         """[текст или reply] — Быстрый вопрос без сохранения в контекст памяти."""
         clean_args = utils.get_args_raw(message)
@@ -3481,6 +5001,11 @@ class magent(loader.Module):
             display_prompt=clean_args or None,
             ephemeral=True,
         )
+
+    @loader.command()
+    async def gask(self, message: Message):
+        """[алиас]"""
+        await self.mask(message)
 
     @loader.command()
     async def mmusic(self, message: Message):
@@ -3539,6 +5064,11 @@ class magent(loader.Module):
         await m.delete()
 
     @loader.command()
+    async def gmusic(self, message: Message):
+        """[алиас]"""
+        await self.mmusic(message)
+
+    @loader.command()
     async def mimg(self, message: Message):
         """<промпт> [reply] — Генерация или редактирование изображений."""
         args = utils.get_args_raw(message)
@@ -3591,6 +5121,11 @@ class magent(loader.Module):
             await utils.answer(m, f"▲ <b>Ошибка:</b>\n<code>{utils.escape_html(str(e))}</code>")
 
     @loader.command()
+    async def gimg(self, message: Message):
+        """[алиас]"""
+        await self.mimg(message)
+
+    @loader.command()
     async def mskey(self, message: Message):
         """[-h] — Проверить статус доступности API-ключей Gemini."""
         args = utils.get_args_raw(message).strip()
@@ -3614,6 +5149,11 @@ class magent(loader.Module):
             except:
                 report += "\n\n▲ <b>Найдены невалидные ключи.</b>"
         await utils.answer(message, report)
+
+    @loader.command()
+    async def gskey(self, message: Message):
+        """[алиас]"""
+        await self.mskey(message)
 
     async def _scan_keys(self, force=False):
         if not GOOGLE_AVAILABLE: return "Library missing", []
@@ -3726,6 +5266,11 @@ class magent(loader.Module):
         )
 
     @loader.command()
+    async def gch(self, message: Message):
+        """[алиас]"""
+        await self.mch(message)
+
+    @loader.command()
     async def mprompt(self, message: Message):
         """<текст/-c/reply> — Установить или сбросить системную инструкцию."""
         args = utils.get_args_raw(message)
@@ -3762,6 +5307,11 @@ class magent(loader.Module):
             await utils.answer(message, f"{self.strings['gprompt_current']}\n<code>{utils.escape_html(current_prompt)}</code>")
 
     @loader.command()
+    async def gprompt(self, message: Message):
+        """[алиас]"""
+        await self.mprompt(message)
+
+    @loader.command()
     async def mauto(self, message: Message):
         """[on/off/id] — Включить или отключить автоответчик в чате."""
         args = utils.get_args_raw(message).split()
@@ -3788,6 +5338,11 @@ class magent(loader.Module):
         else: await utils.answer(message, self.strings["auto_mode_usage"])
 
     @loader.command()
+    async def gauto(self, message: Message):
+        """[алиас]"""
+        await self.mauto(message)
+
+    @loader.command()
     async def mautochats(self, message: Message):
         """— Список чатов с активным автоответчиком."""
         if not self.impersonation_chats: return await utils.answer(message, self.strings["no_auto_mode_chats"])
@@ -3799,6 +5354,11 @@ class magent(loader.Module):
                 out.append(self.strings["memory_chat_line"].format(name, cid))
             except: out.append(self.strings["memory_chat_line"].format("Неизвестный чат", cid))
         await utils.answer(message, "\n".join(out))
+
+    @loader.command()
+    async def gautochats(self, message: Message):
+        """[алиас]"""
+        await self.mautochats(message)
 
     @loader.command()
     async def mclear(self, message: Message):
@@ -3829,6 +5389,11 @@ class magent(loader.Module):
             await utils.answer(message, self.strings["memory_cleared_global"] if hist_key == "global_context" else self.strings["memory_cleared"])
         else:
             await utils.answer(message, self.strings["no_memory_to_clear"])
+
+    @loader.command()
+    async def gclear(self, message: Message):
+        """[алиас]"""
+        await self.mclear(message)
 
     @loader.command()
     async def mpresets(self, message: Message):
@@ -3876,6 +5441,11 @@ class magent(loader.Module):
         else:
              await utils.answer(message, self.strings["gpresets_usage"])
 
+    @loader.command()
+    async def gpresets(self, message: Message):
+        """[алиас]"""
+        await self.mpresets(message)
+
     def _find_preset(self, query):
         if not query: return None
         if str(query).isdigit():
@@ -3901,6 +5471,11 @@ class magent(loader.Module):
         else: await utils.answer(message, "Недостаточно истории для удаления.")
 
     @loader.command()
+    async def gmemdel(self, message: Message):
+        """[алиас]"""
+        await self.mmemdel(message)
+
+    @loader.command()
     async def mmemchats(self, message: Message):
         """— Список чатов с сохраненной историей диалогов."""
         if not self.conversations: return await utils.answer(message, self.strings["no_memory_found"])
@@ -3919,6 +5494,11 @@ class magent(loader.Module):
         self._save_history_sync()
         if len(out) == 1: return await utils.answer(message, self.strings["no_memory_found"])
         await utils.answer(message, "\n".join(out))
+
+    @loader.command()
+    async def gmemchats(self, message: Message):
+        """[алиас]"""
+        await self.mmemchats(message)
 
     @loader.command()
     async def mmemexport(self, message: Message):
@@ -3986,6 +5566,11 @@ class magent(loader.Module):
                  await message.delete()
 
     @loader.command()
+    async def gmemexport(self, message: Message):
+        """[алиас]"""
+        await self.mmemexport(message)
+
+    @loader.command()
     async def mmemimport(self, message: Message):
         """[auto] [reply] — Импортировать историю диалогов из JSON-файла."""
         reply = await message.get_reply_message()
@@ -4029,6 +5614,11 @@ class magent(loader.Module):
             await utils.answer(message, f"▲ Ошибка импорта: {e}")
 
     @loader.command()
+    async def gmemimport(self, message: Message):
+        """[алиас]"""
+        await self.mmemimport(message)
+
+    @loader.command()
     async def mmemfind(self, message: Message):
         """<текст> — Поиск фрагментов по истории диалога в текущем чате."""
         q = utils.get_args_raw(message).lower()
@@ -4040,6 +5630,11 @@ class magent(loader.Module):
         else: await utils.answer(message, "\n\n".join(found[:10]))
 
     @loader.command()
+    async def gmemfind(self, message: Message):
+        """[алиас]"""
+        await self.mmemfind(message)
+
+    @loader.command()
     async def mmemoff(self, message: Message):
         """— Отключить сохранение контекста в текущем чате."""
         self.memory_disabled_chats.add(str(utils.get_chat_id(message)))
@@ -4047,11 +5642,21 @@ class magent(loader.Module):
         await utils.answer(message, "Память в этом чате отключена.")
 
     @loader.command()
+    async def gmemoff(self, message: Message):
+        """[алиас]"""
+        await self.mmemoff(message)
+
+    @loader.command()
     async def mmemon(self, message: Message):
         """— Включить сохранение контекста в текущем чате."""
         self.memory_disabled_chats.discard(str(utils.get_chat_id(message)))
         self.db.set(self.strings["name"], DB_MEMORY_DISABLED_KEY, list(self.memory_disabled_chats))
         await utils.answer(message, "Память в этом чате включена.")
+
+    @loader.command()
+    async def gmemon(self, message: Message):
+        """[алиас]"""
+        await self.mmemon(message)
 
     @loader.command()
     async def mmemshow(self, message: Message):
@@ -4068,6 +5673,11 @@ class magent(loader.Module):
             if role == 'user': out.append(f"{content}")
             elif role == 'model': out.append(f"<b>AI:</b> {content}")
         await utils.answer(message, "<blockquote expandable='true'>" + "\n".join(out) + "</blockquote>")
+
+    @loader.command()
+    async def gmemshow(self, message: Message):
+        """[алиас]"""
+        await self.mmemshow(message)
 
     def _save_skills(self):
         self.db.set(self.strings["name"], DB_SKILLS_KEY, self.skills)
@@ -4147,14 +5757,24 @@ class magent(loader.Module):
         await utils.answer(message, f"✓ Навык <b>{utils.escape_html(name)}</b> {verb} — буду помнить всегда ⏣")
 
     @loader.command()
+    async def gskill(self, message: Message):
+        """[алиас]"""
+        await self.mskill(message)
+
+    @loader.command()
     async def mteach(self, message: Message):
         """<имя> <описание> — Быстро обучить AI новому постоянному правилу."""
+        await self.mskill(message)
+
+    @loader.command()
+    async def gteach(self, message: Message):
+        """[алиас]"""
         await self.mskill(message)
 
     async def _show_providers_interactive_card(self, entity):
         current_provider = self._normalize_provider_name()
         effective = self._resolve_effective_model(current_provider, self.config["model_name"], [], "")
-        has_key = bool(self._resolve_provider_api_key(current_provider))
+        has_key = bool(self._resolve_provider_api_key(current_provider)) or (current_provider == "custom" and bool(self.config.get("custom_base_url")))
         status_key = "✓ Настроен" if has_key else "▲ Не настроен"
         
         text = (
@@ -4313,6 +5933,11 @@ class magent(loader.Module):
         await utils.answer(message, self.strings["gprovider_set"].format(self._provider_label(provider), utils.escape_html(effective)))
 
     @loader.command()
+    async def gprovider(self, message: Message):
+        """[алиас]"""
+        return await self.mprovider(message)
+
+    @loader.command()
     async def mprofile(self, message: Message):
         """[профиль] — Выбор профиля авто-подбора модели (auto, balanced, fast, coding и др.)."""
         args = utils.get_args_raw(message).strip().lower()
@@ -4326,6 +5951,11 @@ class magent(loader.Module):
         effective = self._resolve_effective_model(provider, self.config["model_name"], [], "")
         self._remember_provider_model(provider, effective, manual=args == "manual")
         await utils.answer(message, self.strings["gprofile_set"].format(utils.escape_html(args), utils.escape_html(effective)))
+
+    @loader.command()
+    async def gprofile(self, message: Message):
+        """[алиас]"""
+        return await self.mprofile(message)
 
     @loader.command()
     async def mmodel(self, message: Message):
@@ -4356,6 +5986,11 @@ class magent(loader.Module):
         await utils.answer(message, f"✓ Модель установлена: <code>{utils.escape_html(args_raw)}</code>\n⌖ Авто-подбор переключен в <code>manual</code>. Вернуть: <code>.mprofile auto</code>{warning}")
 
     @loader.command()
+    async def gmodel(self, message: Message):
+        """[алиас]"""
+        return await self.mmodel(message)
+
+    @loader.command()
     async def mrich(self, message: Message):
         """[on/off] — Переключить Rich Mode (спойлеры <details>, блоки размышлений, таблицы)."""
         args = utils.get_args_raw(message).strip().lower()
@@ -4375,6 +6010,11 @@ class magent(loader.Module):
             await utils.answer(message, "✗ <b>Telegram Rich Mode выключен.</b> Используется классическая разметка blockquote.")
         else:
             await utils.answer(message, "Использование: <code>.mrich on</code> или <code>.mrich off</code>")
+
+    @loader.command()
+    async def grich(self, message: Message):
+        """[алиас]"""
+        return await self.mrich(message)
 
     @loader.command()
     async def mnoemoji(self, message: Message):
@@ -4409,6 +6049,21 @@ class magent(loader.Module):
             await utils.answer(message, "Использование: <code>.mnoemoji on</code> или <code>.mnoemoji off</code>")
 
     @loader.command()
+    async def msymbols(self, message: Message):
+        """[алиас]"""
+        return await self.mnoemoji(message)
+
+    @loader.command()
+    async def gsymbols(self, message: Message):
+        """[алиас]"""
+        return await self.mnoemoji(message)
+
+    @loader.command()
+    async def gnoemoji(self, message: Message):
+        """[алиас]"""
+        return await self.mnoemoji(message)
+
+    @loader.command()
     async def mmodels(self, message: Message):
         """[провайдер] [поиск] — Интерактивное меню каталога моделей с выбором по кнопке."""
         args_raw = utils.get_args_raw(message).strip()
@@ -4434,6 +6089,11 @@ class magent(loader.Module):
             await self._show_provider_models_menu(status_msg, target_provider, query=query)
         except Exception as e:
             await utils.answer(status_msg, f"▲ <b>Ошибка загрузки каталога моделей:</b> {self._handle_error(e)}")
+
+    @loader.command()
+    async def gmodels(self, message: Message):
+        """[алиас]"""
+        return await self.mmodels(message)
 
     async def _show_provider_model_catalog(self, entity, provider: str):
         await self._show_provider_models_menu(entity, provider)
@@ -4967,6 +6627,11 @@ class magent(loader.Module):
         else:
             await utils.answer(message, self.strings["gres_usage"])
 
+    @loader.command()
+    async def gres(self, message: Message):
+        """[алиас]"""
+        return await self.mres(message)
+
     @loader.callback_handler()
     async def gemini_callback_handler(self, call: InlineCall):
         if not (call.data.startswith("gemini:") or call.data.startswith("magent:")): return
@@ -5049,6 +6714,57 @@ class magent(loader.Module):
                 except: pass
                 await self._show_profiles_interactive_card(call)
                 return
+
+        if action == "kt_apply":
+            k_id = parts[2]
+            mode = parts[3] if len(parts) > 3 else "save"
+            data = getattr(self, "_pending_keys", {}).get(k_id)
+            if not data:
+                try: await call.answer("▲ Данные ключа истекли или уже сохранены.", show_alert=True)
+                except: pass
+                try: await call.edit("▲ <b>Данные ключа истекли.</b> Проверьте ключ заново через <code>.keytest</code>.", reply_markup=None)
+                except: pass
+                return
+            prov = data.get("provider")
+            api_key = data.get("key")
+            cfg_key = PROVIDER_KEY_CFG.get(prov)
+            if not cfg_key:
+                try: await call.answer(f"▲ Не найден параметр конфига для {prov}", show_alert=True)
+                except: pass
+                return
+            self.config[cfg_key] = api_key
+            del self._pending_keys[k_id]
+
+            status_text = f"✓ Ключ успешно сохранен в конфигурации (<code>{cfg_key}</code>)!"
+            if mode == "act":
+                prev = self._normalize_provider_name()
+                self._remember_provider_model(prev, self.config["model_name"], manual=not self.config["auto_model"])
+                self.config["provider"] = prov
+                self.db.set(self.strings["name"], DB_PROVIDER_STATE_KEY, prov)
+                self._restore_provider_model(prov)
+                status_text += f"\n⬡ Провайдер автоматически переключен на <b>{self._provider_label(prov)}</b>."
+                try: await call.answer(f"✓ Ключ сохранен и {self._provider_label(prov)} активирован!", show_alert=True)
+                except: pass
+            else:
+                try: await call.answer(f"✓ Ключ для {self._provider_label(prov)} успешно сохранен!", show_alert=True)
+                except: pass
+
+            try:
+                base_txt = call.text or ""
+                await call.edit(
+                    f"{base_txt}\n\n{status_text}",
+                    reply_markup=[
+                        [
+                            {"text": f"∅ Модели {self._provider_label(prov)}", "data": f"gemini:gmod:quick_models:{prov}"},
+                            {"text": "⬡ Провайдеры", "data": "gemini:prov:menu"},
+                        ],
+                        [{"text": "✗ Закрыть", "data": f"gemini:close:{k_id}"}],
+                    ]
+                )
+            except Exception:
+                try: await call.edit(status_text, reply_markup=None)
+                except: pass
+            return
 
         if action == "gmod":
             sub = parts[2]
