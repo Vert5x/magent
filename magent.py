@@ -1703,7 +1703,7 @@ class magent(loader.Module):
             loader.ConfigValue("huggingface_api_key", "", "API Key от HuggingFace (получить <a href='https://huggingface.co/settings/tokens'>тут</a>).", validator=loader.validators.Hidden()),
             loader.ConfigValue("openai_api_key", "", "API Key от OpenAI (получить <a href='https://platform.openai.com/api-keys'>тут</a>).", validator=loader.validators.Hidden()),
             loader.ConfigValue("deepseek_api_key", "", "API Key от DeepSeek (получить <a href='https://platform.deepseek.com/api_keys'>тут</a>).", validator=loader.validators.Hidden()),
-            loader.ConfigValue("provider", "google", "Провайдер API.", validator=loader.validators.Choice(["google", "openrouter", "huggingface", "openai", "deepseek", "groq", "mistral", "together", "cerebras", "xai", "nvidia", "custom"])),
+            loader.ConfigValue("provider", "google", "Провайдер API (google, groq, openai, deepseek, custom и др.).", validator=loader.validators.String()),
             loader.ConfigValue("model_name", "gemini-3-flash-preview", self.strings["cfg_model_name_doc"]),
             loader.ConfigValue("openrouter_model", "", self.strings["cfg_openrouter_model_doc"]),
             loader.ConfigValue("huggingface_model", "", self.strings["cfg_huggingface_model_doc"]),
@@ -1797,6 +1797,7 @@ class magent(loader.Module):
         self.session_stats = {"requests": 0, "tokens_in": 0, "tokens_out": 0, "times": [], "start_time": time.time(), "by_provider": {}}
         self.api_keys = []
         self.custom_providers = {}
+        self._active_custom_provider = None
 
     async def client_ready(self, client, db):
         self.client = client
@@ -1889,16 +1890,19 @@ class magent(loader.Module):
                 "api_key": "sk-953e22425ef6499bad631ab9f9f6a177",
                 "model": "kimi-k3",
             }
-            cfg_url = str(self.config.get("custom_base_url") or "").strip()
-            cfg_key = str(self.config.get("custom_api_key") or "").strip()
-            if cfg_url and not any(cp.get("base_url") == cfg_url for cp in loaded_custom.values()):
-                loaded_custom["custom"] = {
-                    "name": "custom",
-                    "label": str(self.config.get("custom_label") or "Custom"),
-                    "base_url": cfg_url,
-                    "api_key": cfg_key,
-                    "model": str(self.config.get("custom_model") or "gpt-4o"),
-                }
+        cfg_url = str(self.config.get("custom_base_url") or saved_keys.get("custom_base_url") or "").strip()
+        cfg_key = str(self.config.get("custom_api_key") or saved_keys.get("custom_api_key") or "").strip()
+        if cfg_url and not any(cp.get("base_url") == cfg_url for cp in loaded_custom.values()):
+            loaded_custom["custom"] = {
+                "name": "custom",
+                "label": str(self.config.get("custom_label") or "Custom"),
+                "base_url": cfg_url,
+                "api_key": cfg_key,
+                "model": str(self.config.get("custom_model") or "gpt-4o"),
+            }
+        for cp in loaded_custom.values():
+            if not cp.get("api_key") and cp.get("base_url") == cfg_url and cfg_key:
+                cp["api_key"] = cfg_key
         self.custom_providers = loaded_custom
         self._save_custom_providers()
 
@@ -2019,13 +2023,32 @@ class magent(loader.Module):
         return "\n\n".join(lines)
 
     def _normalize_provider_name(self, provider: str = None) -> str:
-        provider = str(provider or self.config.get("provider") or "google").strip().lower()
+        provider = str(provider or "").strip().lower()
+        if not provider:
+            active_custom = getattr(self, "_active_custom_provider", None)
+            db_prov = None
+            if hasattr(self, "db") and hasattr(self, "strings"):
+                db_prov = self.db.get(self.strings["name"], DB_PROVIDER_STATE_KEY, None)
+            cfg_prov = str(self.config.get("provider") or "google").strip().lower()
+            if cfg_prov == "custom":
+                provider = active_custom or db_prov or "custom"
+            else:
+                provider = db_prov or cfg_prov
+
         if hasattr(self, "custom_providers") and isinstance(self.custom_providers, dict):
             if provider in self.custom_providers:
                 return provider
             for k, cp in self.custom_providers.items():
                 if provider == str(cp.get("label") or "").strip().lower():
                     return k
+            if provider == "custom":
+                active_c = getattr(self, "_active_custom_provider", None)
+                if active_c and active_c in self.custom_providers:
+                    return active_c
+                db_c = getattr(self, "db", None) and hasattr(self, "strings") and self.db.get(self.strings["name"], DB_PROVIDER_STATE_KEY, None)
+                if db_c and db_c in self.custom_providers:
+                    return db_c
+
         return {
             "gemini": "google", "google": "google",
             "or": "openrouter", "openrouter": "openrouter",
@@ -2092,8 +2115,32 @@ class magent(loader.Module):
         if hasattr(self, "custom_providers") and hasattr(self, "db"):
             self.db.set(self.strings["name"], DB_CUSTOM_PROVIDERS_KEY, self.custom_providers)
 
+    def _get_cfg_key(self, cfg_name: str) -> str:
+        val = str(self.config.get(cfg_name) or "").strip()
+        if not val and hasattr(self, "db"):
+            saved = self.db.get(self.strings["name"], DB_SAVED_KEYS_KEY, {})
+            if isinstance(saved, dict):
+                val = str(saved.get(cfg_name) or "").strip()
+            if not val:
+                mod_cfg = self.db.get(self.strings["name"], "__config__", {})
+                if isinstance(mod_cfg, dict):
+                    val = str(mod_cfg.get(cfg_name) or "").strip()
+            if not val:
+                gem_cfg = self.db.get("Gemini", "__config__", {})
+                if isinstance(gem_cfg, dict):
+                    val = str(gem_cfg.get(cfg_name) or "").strip()
+            if val:
+                try:
+                    self.config[cfg_name] = val
+                except Exception:
+                    pass
+        return val
+
     def _persist_key(self, cfg_key: str, value: str):
-        self.config[cfg_key] = value
+        try:
+            self.config[cfg_key] = value
+        except Exception:
+            pass
         if hasattr(self, "db"):
             saved_keys = self.db.get(self.strings["name"], DB_SAVED_KEYS_KEY, {})
             if not isinstance(saved_keys, dict):
@@ -2107,25 +2154,44 @@ class magent(loader.Module):
                     self.db.set(self.strings["name"], "__config__", mod_cfg)
             except Exception:
                 pass
+            if hasattr(self, "custom_providers") and cfg_key == "custom_api_key":
+                active = getattr(self, "_active_custom_provider", None) or self._normalize_provider_name()
+                if active in self.custom_providers and value:
+                    self.custom_providers[active]["api_key"] = value
+                    self._save_custom_providers()
 
     def _activate_provider(self, prov: str) -> str:
         prev = self._normalize_provider_name()
         self._remember_provider_model(prev, self.config["model_name"], manual=not self.config["auto_model"])
         new_prov = self._normalize_provider_name(prov)
-        self.config["provider"] = new_prov
-        if hasattr(self, "db"):
-            self.db.set(self.strings["name"], DB_PROVIDER_STATE_KEY, new_prov)
-        if hasattr(self, "custom_providers") and new_prov in self.custom_providers:
-            cp = self.custom_providers[new_prov]
-            if cp.get("base_url"):
-                self.config["custom_base_url"] = cp["base_url"]
-            if cp.get("api_key") is not None:
-                self.config["custom_api_key"] = cp["api_key"]
-            if cp.get("label"):
-                self.config["custom_label"] = cp["label"]
-            if cp.get("model"):
-                self.config["custom_model"] = cp["model"]
-                self.config["model_name"] = cp["model"]
+        is_custom = (hasattr(self, "custom_providers") and new_prov in self.custom_providers) or new_prov == "custom"
+        if is_custom:
+            self._active_custom_provider = new_prov
+            if hasattr(self, "db"):
+                self.db.set(self.strings["name"], DB_PROVIDER_STATE_KEY, new_prov)
+            try:
+                self.config["provider"] = "custom"
+            except Exception:
+                pass
+            if hasattr(self, "custom_providers") and new_prov in self.custom_providers:
+                cp = self.custom_providers[new_prov]
+                if cp.get("base_url"):
+                    self._persist_key("custom_base_url", cp["base_url"])
+                if cp.get("api_key") is not None:
+                    self._persist_key("custom_api_key", cp["api_key"])
+                if cp.get("label"):
+                    self.config["custom_label"] = cp["label"]
+                if cp.get("model"):
+                    self.config["custom_model"] = cp["model"]
+                    self.config["model_name"] = cp["model"]
+        else:
+            self._active_custom_provider = None
+            if hasattr(self, "db"):
+                self.db.set(self.strings["name"], DB_PROVIDER_STATE_KEY, new_prov)
+            try:
+                self.config["provider"] = new_prov
+            except Exception:
+                pass
         self._restore_provider_model(new_prov)
         return new_prov
 
@@ -2345,19 +2411,19 @@ class magent(loader.Module):
             self.key_cooldowns[str(key)] = time.time() + max(60, int(seconds or 3600))
 
     def _get_openrouter_keys(self) -> list:
-        raw = str(self.config.get("openrouter_api_key") or "")
+        raw = self._get_cfg_key("openrouter_api_key")
         return [key.strip() for key in raw.split(",") if key.strip()]
 
     def _get_huggingface_keys(self) -> list:
-        raw = str(self.config.get("huggingface_api_key") or "")
+        raw = self._get_cfg_key("huggingface_api_key")
         return [key.strip() for key in raw.split(",") if key.strip()]
 
     def _get_openai_keys(self) -> list:
-        raw = str(self.config.get("openai_api_key") or "")
+        raw = self._get_cfg_key("openai_api_key")
         return [key.strip() for key in raw.split(",") if key.strip()]
 
     def _get_deepseek_keys(self) -> list:
-        raw = str(self.config.get("deepseek_api_key") or "")
+        raw = self._get_cfg_key("deepseek_api_key")
         return [key.strip() for key in raw.split(",") if key.strip()]
 
     def _get_proxy_config(self):
@@ -4272,11 +4338,16 @@ class magent(loader.Module):
         provider = self._normalize_provider_name(provider)
         if hasattr(self, "custom_providers") and provider in self.custom_providers:
             key = str(self.custom_providers[provider].get("api_key") or "").strip()
+            if not key:
+                key = self._get_cfg_key("custom_api_key")
+                if key:
+                    self.custom_providers[provider]["api_key"] = key
+                    self._save_custom_providers()
             return [k.strip() for k in key.split(",") if k.strip()] if key else ["dummy"]
         if provider == "google":
             if self.api_keys:
                 return list(self.api_keys)
-            raw = str(self.config.get("api_key") or "")
+            raw = self._get_cfg_key("api_key")
             return [k.strip() for k in raw.split(",") if k.strip()]
         if provider == "openrouter":
             return self._get_openrouter_keys()
@@ -4287,18 +4358,21 @@ class magent(loader.Module):
         if provider == "deepseek":
             return self._get_deepseek_keys()
         cfg_name = "custom_api_key" if provider == "custom" else f"{provider}_api_key"
-        raw = str(self.config.get(cfg_name) or "")
+        raw = self._get_cfg_key(cfg_name)
         return [k.strip() for k in raw.split(",") if k.strip()]
 
     def _resolve_provider_api_key(self, provider: str) -> str:
         provider = self._normalize_provider_name(provider)
         if hasattr(self, "custom_providers") and provider in self.custom_providers:
-            return str(self.custom_providers[provider].get("api_key") or "")
+            k = str(self.custom_providers[provider].get("api_key") or "").strip()
+            if k:
+                return k
+            return self._get_cfg_key("custom_api_key")
         keys = self._keys_for(provider)
         if keys and keys[0] != "dummy":
             return keys[0]
         if provider == "custom":
-            return str(self.config.get("custom_api_key") or "")
+            return self._get_cfg_key("custom_api_key")
         return ""
 
     @property
@@ -4323,7 +4397,7 @@ class magent(loader.Module):
         if hasattr(self, "custom_providers") and p in self.custom_providers:
             base = str(self.custom_providers[p].get("base_url") or "").strip().rstrip("/")
         if not base:
-            base = str(self.config.get("custom_base_url") or "").strip().rstrip("/")
+            base = self._get_cfg_key("custom_base_url").rstrip("/")
         if not base:
             return ""
         if base.endswith("/chat/completions"):
@@ -4338,7 +4412,7 @@ class magent(loader.Module):
         if hasattr(self, "custom_providers") and p in self.custom_providers:
             base = str(self.custom_providers[p].get("base_url") or "").strip().rstrip("/")
         if not base:
-            base = str(self.config.get("custom_base_url") or "").strip().rstrip("/")
+            base = self._get_cfg_key("custom_base_url").rstrip("/")
         if not base:
             return ""
         if base.endswith("/chat/completions"):
@@ -6165,7 +6239,7 @@ class magent(loader.Module):
             key = parts[3].strip() if len(parts) > 3 else ""
             if key.lower() in ("-", "none", "null", "no", "0"):
                 key = ""
-            model = parts[4].strip() if len(parts) > 4 else ""
+            model = " ".join(parts[4:]).strip() if len(parts) > 4 else ""
             if not model:
                 model = "gpt-4o"
 
@@ -6178,6 +6252,10 @@ class magent(loader.Module):
                 "model": model,
             }
             self._save_custom_providers()
+            if key:
+                self._persist_key("custom_api_key", key)
+            self._persist_key("custom_base_url", url)
+            self._remember_provider_model(name, model, manual=True)
             self._activate_provider(name)
             key_status = "✓ Задан" if key else "∅ Без ключа (локальный/свободный)"
             return await utils.answer(
@@ -7082,10 +7160,16 @@ class magent(loader.Module):
             api_key = data.get("key")
             cfg_key = PROVIDER_KEY_CFG.get(prov)
             if not cfg_key:
-                try: await call.answer(f"▲ Не найден параметр конфига для {prov}", show_alert=True)
-                except: pass
-                return
+                if self._is_custom_provider(prov):
+                    cfg_key = "custom_api_key"
+                else:
+                    try: await call.answer(f"▲ Не найден параметр конфига для {prov}", show_alert=True)
+                    except: pass
+                    return
             self._persist_key(cfg_key, api_key)
+            if self._is_custom_provider(prov) and hasattr(self, "custom_providers") and prov in self.custom_providers:
+                self.custom_providers[prov]["api_key"] = api_key
+                self._save_custom_providers()
             del self._pending_keys[k_id]
 
             status_text = f"✓ Ключ успешно сохранен в конфигурации (<code>{cfg_key}</code>)!"
