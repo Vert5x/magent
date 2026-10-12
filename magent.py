@@ -5,7 +5,7 @@
 
 # scope heroku_min: 2.0.0
 
-__version__ = ("1", "4", "5")
+__version__ = ("1", "4", "6")
 
 # meta developer: @kgpix
 
@@ -1903,8 +1903,20 @@ class magent(loader.Module):
         for cp in loaded_custom.values():
             if not cp.get("api_key") and cp.get("base_url") == cfg_url and cfg_key:
                 cp["api_key"] = cfg_key
+        for name, cp in list(loaded_custom.items()):
+            k_val = str(self.config.get(f"{name}_api_key") or saved_keys.get(f"{name}_api_key") or "").strip()
+            if k_val:
+                cp["api_key"] = k_val
+            u_val = str(self.config.get(f"{name}_base_url") or saved_keys.get(f"{name}_base_url") or "").strip()
+            if u_val:
+                cp["base_url"] = u_val
+            m_val = str(self.config.get(f"{name}_model") or saved_keys.get(f"{name}_model") or "").strip()
+            if m_val:
+                cp["model"] = m_val
         self.custom_providers = loaded_custom
         self._save_custom_providers()
+        for name, cp in self.custom_providers.items():
+            self._register_custom_provider_config(name, cp)
 
         api_key_str = self.config["api_key"]
         self.api_keys = [k.strip() for k in api_key_str.split(",") if k.strip()] if api_key_str else []
@@ -2076,14 +2088,15 @@ class magent(loader.Module):
         p = self._normalize_provider_name(provider)
         if hasattr(self, "custom_providers") and p in self.custom_providers:
             cp = self.custom_providers[p]
-            model = cp.get("model") or "gpt-4o"
+            cfg_m = self._get_cfg_key(f"{p}_model")
+            model = cfg_m or cp.get("model") or "gpt-4o"
             return {
                 "name": p,
                 "label": cp.get("label") or p.capitalize(),
                 "default_model": model,
                 "fallback_models": (model,),
                 "model_prefixes": (),
-                "cfg_key": "custom_api_key",
+                "cfg_key": f"{p}_api_key",
                 "profiles": {
                     "auto": model,
                     "balanced": model,
@@ -2106,6 +2119,83 @@ class magent(loader.Module):
 
     def _provider_default_model(self, provider: str = None) -> str:
         return self._provider_spec(provider).get("default_model", "gemini-3-flash-preview")
+
+    def _mask_key(self, key: str) -> str:
+        if not key or key == "dummy":
+            return "∅ не задан"
+        key = str(key).strip()
+        if len(key) <= 8:
+            return key[:2] + "..." + key[-2:] if len(key) > 4 else "..."
+        return key[:6] + "..." + key[-4:]
+
+    def _register_custom_provider_config(self, name: str, cp: dict = None):
+        if not name or not hasattr(self, "config"):
+            return
+        name = name.strip().lower()
+        if cp is None:
+            cp = getattr(self, "custom_providers", {}).get(name, {})
+        label = cp.get("label") or name.capitalize()
+        key_val = str(cp.get("api_key") or "")
+        url_val = str(cp.get("base_url") or "")
+        model_val = str(cp.get("model") or "")
+
+        key_opt = f"{name}_api_key"
+        url_opt = f"{name}_base_url"
+        model_opt = f"{name}_model"
+
+        if hasattr(self.config, "_config"):
+            if key_opt not in self.config._config:
+                self.config._config[key_opt] = loader.ConfigValue(
+                    key_opt,
+                    key_val,
+                    f"API Key для кастомного провайдера {label}.",
+                    validator=loader.validators.Hidden(),
+                )
+                dict.__setitem__(self.config, key_opt, key_val)
+            else:
+                if key_val and not self.config._config[key_opt].value:
+                    self.config._config[key_opt].value = key_val
+                    dict.__setitem__(self.config, key_opt, key_val)
+
+            if url_opt not in self.config._config:
+                self.config._config[url_opt] = loader.ConfigValue(
+                    url_opt,
+                    url_val,
+                    f"Base URL для кастомного провайдера {label}.",
+                    validator=loader.validators.String(),
+                )
+                dict.__setitem__(self.config, url_opt, url_val)
+            else:
+                if url_val and not self.config._config[url_opt].value:
+                    self.config._config[url_opt].value = url_val
+                    dict.__setitem__(self.config, url_opt, url_val)
+
+            if model_opt not in self.config._config:
+                self.config._config[model_opt] = loader.ConfigValue(
+                    model_opt,
+                    model_val,
+                    f"Модель по умолчанию для {label}.",
+                    validator=loader.validators.String(),
+                )
+                dict.__setitem__(self.config, model_opt, model_val)
+            else:
+                if model_val and not self.config._config[model_opt].value:
+                    self.config._config[model_opt].value = model_val
+                    dict.__setitem__(self.config, model_opt, model_val)
+
+        self.PROVIDER_KEY_CFG[name] = key_opt
+        self.PROVIDER_MODEL_CFG[name] = model_opt
+
+    def _unregister_custom_provider_config(self, name: str):
+        if not name or not hasattr(self, "config"):
+            return
+        name = name.strip().lower()
+        for opt in (f"{name}_api_key", f"{name}_base_url", f"{name}_model"):
+            if hasattr(self.config, "_config"):
+                self.config._config.pop(opt, None)
+            dict.pop(self.config, opt, None)
+        self.PROVIDER_KEY_CFG.pop(name, None)
+        self.PROVIDER_MODEL_CFG.pop(name, None)
 
     def _save_provider_models(self):
         if hasattr(self, "db"):
@@ -2154,11 +2244,27 @@ class magent(loader.Module):
                     self.db.set(self.strings["name"], "__config__", mod_cfg)
             except Exception:
                 pass
-            if hasattr(self, "custom_providers") and cfg_key == "custom_api_key":
-                active = getattr(self, "_active_custom_provider", None) or self._normalize_provider_name()
-                if active in self.custom_providers and value:
-                    self.custom_providers[active]["api_key"] = value
-                    self._save_custom_providers()
+            if hasattr(self, "custom_providers"):
+                if cfg_key == "custom_api_key":
+                    active = getattr(self, "_active_custom_provider", None) or self._normalize_provider_name()
+                    if active in self.custom_providers and value:
+                        self.custom_providers[active]["api_key"] = value
+                        self._save_custom_providers()
+                elif cfg_key.endswith("_api_key"):
+                    p_name = cfg_key[:-8]
+                    if p_name in self.custom_providers:
+                        self.custom_providers[p_name]["api_key"] = value
+                        self._save_custom_providers()
+                elif cfg_key.endswith("_base_url"):
+                    p_name = cfg_key[:-9]
+                    if p_name in self.custom_providers:
+                        self.custom_providers[p_name]["base_url"] = value
+                        self._save_custom_providers()
+                elif cfg_key.endswith("_model"):
+                    p_name = cfg_key[:-6]
+                    if p_name in self.custom_providers:
+                        self.custom_providers[p_name]["model"] = value
+                        self._save_custom_providers()
 
     def _activate_provider(self, prov: str) -> str:
         prev = self._normalize_provider_name()
@@ -2175,15 +2281,21 @@ class magent(loader.Module):
                 pass
             if hasattr(self, "custom_providers") and new_prov in self.custom_providers:
                 cp = self.custom_providers[new_prov]
-                if cp.get("base_url"):
-                    self._persist_key("custom_base_url", cp["base_url"])
-                if cp.get("api_key") is not None:
-                    self._persist_key("custom_api_key", cp["api_key"])
+                u = cp.get("base_url") or self._get_cfg_key(f"{new_prov}_base_url")
+                k = cp.get("api_key") if cp.get("api_key") is not None else self._get_cfg_key(f"{new_prov}_api_key")
+                m = cp.get("model") or self._get_cfg_key(f"{new_prov}_model")
+                if u:
+                    self._persist_key("custom_base_url", u)
+                    self._persist_key(f"{new_prov}_base_url", u)
+                if k is not None:
+                    self._persist_key("custom_api_key", k)
+                    self._persist_key(f"{new_prov}_api_key", k)
                 if cp.get("label"):
                     self.config["custom_label"] = cp["label"]
-                if cp.get("model"):
-                    self.config["custom_model"] = cp["model"]
-                    self.config["model_name"] = cp["model"]
+                if m:
+                    self.config["custom_model"] = m
+                    self._persist_key(f"{new_prov}_model", m)
+                    self.config["model_name"] = m
         else:
             self._active_custom_provider = None
             if hasattr(self, "db"):
@@ -3340,7 +3452,7 @@ class magent(loader.Module):
             
         return st_icon, res_disp, prog_disp, status_word, dur_s
 
-    def _build_tool_details_blocks(self, tool_steps: list, total_elapsed: float = 0.0) -> str:
+    def _build_tool_details_blocks(self, tool_steps: list, total_elapsed: float = 0.0, rich: bool = False) -> str:
         if not tool_steps:
             return ""
             
@@ -3355,10 +3467,14 @@ class magent(loader.Module):
         tot_s = f"{int(round(total_elapsed))}s" if total_elapsed >= 0.95 else f"{round(total_elapsed, 1)}s"
         progress_lines.append(f"• <code>готовит ответ · ответ · готово · {tot_s}</code>")
         
-        results_html = f"<details><summary>Результаты инструментов</summary><b>Результаты инструментов:</b><blockquote>{'\n'.join(res_lines)}</blockquote></details>"
-        progress_html = f"<details><summary>Ход работы</summary><b>Ход работы:</b><blockquote>{'\n'.join(progress_lines)}</blockquote></details>"
-        
-        return f"{results_html}\n{progress_html}"
+        if rich:
+            results_html = f"<details><summary>Результаты инструментов</summary><blockquote>{'\n'.join(res_lines)}</blockquote></details>"
+            progress_html = f"<details><summary>Ход работы</summary><blockquote>{'\n'.join(progress_lines)}</blockquote></details>"
+            return f"{results_html}\n{progress_html}"
+        else:
+            results_html = f"<blockquote expandable='true'><b>Результаты инструментов:</b>\n{'\n'.join(res_lines)}</blockquote>"
+            progress_html = f"<blockquote expandable='true'><b>Ход работы:</b>\n{'\n'.join(progress_lines)}</blockquote>"
+            return f"{results_html}\n\n{progress_html}"
 
     async def _render_tool_progress(self, status_msg, call):
         if not getattr(self, "_tool_steps", []):
@@ -4066,7 +4182,7 @@ class magent(loader.Module):
             
             tool_summary = ""
             if getattr(self, "_tool_steps", []):
-                tool_summary = self._build_tool_details_blocks(self._tool_steps, elapsed) + "\n\n"
+                tool_summary = self._build_tool_details_blocks(self._tool_steps, elapsed, rich=False) + "\n\n"
             
             question_html = f"<blockquote expandable='true'>{utils.escape_html(request_text[:180])}</blockquote>"
             text_to_send = (
@@ -4158,7 +4274,7 @@ class magent(loader.Module):
         
         tools_html = ""
         if tool_steps:
-            tools_html = self._build_tool_details_blocks(tool_steps, elapsed) + "\n"
+            tools_html = self._build_tool_details_blocks(tool_steps, elapsed, rich=True) + "\n"
             
         thinking_html = ""
         if thinking_text:
@@ -4337,12 +4453,12 @@ class magent(loader.Module):
     def _keys_for(self, provider: str) -> list:
         provider = self._normalize_provider_name(provider)
         if hasattr(self, "custom_providers") and provider in self.custom_providers:
-            key = str(self.custom_providers[provider].get("api_key") or "").strip()
-            if not key:
-                key = self._get_cfg_key("custom_api_key")
-                if key:
-                    self.custom_providers[provider]["api_key"] = key
-                    self._save_custom_providers()
+            cfg_k = self._get_cfg_key(f"{provider}_api_key")
+            cp_k = str(self.custom_providers[provider].get("api_key") or "").strip()
+            key = cfg_k or cp_k or self._get_cfg_key("custom_api_key")
+            if key and key != cp_k:
+                self.custom_providers[provider]["api_key"] = key
+                self._save_custom_providers()
             return [k.strip() for k in key.split(",") if k.strip()] if key else ["dummy"]
         if provider == "google":
             if self.api_keys:
@@ -4364,10 +4480,11 @@ class magent(loader.Module):
     def _resolve_provider_api_key(self, provider: str) -> str:
         provider = self._normalize_provider_name(provider)
         if hasattr(self, "custom_providers") and provider in self.custom_providers:
-            k = str(self.custom_providers[provider].get("api_key") or "").strip()
+            cfg_k = self._get_cfg_key(f"{provider}_api_key")
+            cp_k = str(self.custom_providers[provider].get("api_key") or "").strip()
+            k = cfg_k or cp_k or self._get_cfg_key("custom_api_key")
             if k:
                 return k
-            return self._get_cfg_key("custom_api_key")
         keys = self._keys_for(provider)
         if keys and keys[0] != "dummy":
             return keys[0]
@@ -4395,7 +4512,12 @@ class magent(loader.Module):
         p = self._normalize_provider_name(provider)
         base = ""
         if hasattr(self, "custom_providers") and p in self.custom_providers:
-            base = str(self.custom_providers[p].get("base_url") or "").strip().rstrip("/")
+            cfg_url = self._get_cfg_key(f"{p}_base_url")
+            cp_url = str(self.custom_providers[p].get("base_url") or "").strip().rstrip("/")
+            base = cfg_url or cp_url
+            if cfg_url and cfg_url != cp_url:
+                self.custom_providers[p]["base_url"] = cfg_url
+                self._save_custom_providers()
         if not base:
             base = self._get_cfg_key("custom_base_url").rstrip("/")
         if not base:
@@ -4410,7 +4532,9 @@ class magent(loader.Module):
         p = self._normalize_provider_name(provider)
         base = ""
         if hasattr(self, "custom_providers") and p in self.custom_providers:
-            base = str(self.custom_providers[p].get("base_url") or "").strip().rstrip("/")
+            cfg_url = self._get_cfg_key(f"{p}_base_url")
+            cp_url = str(self.custom_providers[p].get("base_url") or "").strip().rstrip("/")
+            base = cfg_url or cp_url
         if not base:
             base = self._get_cfg_key("custom_base_url").rstrip("/")
         if not base:
@@ -6096,11 +6220,14 @@ class magent(loader.Module):
             buttons.append([{"text": f"{mark}{self._provider_label('custom')}", "data": "gemini:prov:set:custom"}])
 
         buttons.append([
-            {"text": "➕ Добавить провайдер", "data": "gemini:prov:add_help"},
-            {"text": f"∅ Модели {self._provider_label(current_provider)}", "data": f"gemini:prov:models:{current_provider}"},
+            {"text": "⚙ Управление и настройка", "data": "gemini:prov:manage_list"},
+            {"text": "➕ Добавить", "data": "gemini:prov:add_help"},
         ])
         buttons.append([
+            {"text": f"∅ Модели {self._provider_label(current_provider)}", "data": f"gemini:prov:models:{current_provider}"},
             {"text": "⌖ Настройка профиля", "data": "gemini:prov:profile"},
+        ])
+        buttons.append([
             {"text": "✗ Закрыть", "data": "gemini:close:prov"},
         ])
 
@@ -6213,9 +6340,163 @@ class magent(loader.Module):
         except Exception:
             await utils.answer(entity, text)
 
+    async def _show_manage_providers_menu(self, entity):
+        current_provider = self._normalize_provider_name()
+        customs = getattr(self, "custom_providers", {})
+
+        text = (
+            "⚙ <b>Управление AI-провайдерами</b>\n\n"
+            f"• <b>Активный сейчас:</b> <code>{self._provider_label(current_provider)}</code>\n"
+            f"• <b>Кастомных в базе:</b> <code>{len(customs)}</code>\n\n"
+            "<i>Выберите провайдер для просмотра и редактирования ключа, URL или модели:</i>"
+        )
+
+        buttons = []
+        if customs:
+            for name, cp in customs.items():
+                label = cp.get("label") or name.capitalize()
+                mark = "✓ " if name == current_provider else "◈ "
+                has_k = "🔑" if cp.get("api_key") else "∅"
+                buttons.append([
+                    {"text": f"{mark}{label} [{name}] · {has_k}", "data": f"gemini:prov:info:{name}"}
+                ])
+
+        core_row = []
+        for p in self.CORE_PROVIDER_ORDER:
+            if p == "custom":
+                continue
+            mark = "✓ " if p == current_provider else ""
+            has_k = "🔑" if self._resolve_provider_api_key(p) else "∅"
+            core_row.append({"text": f"{mark}{self._provider_label(p)} · {has_k}", "data": f"gemini:prov:info:{p}"})
+            if len(core_row) == 2:
+                buttons.append(core_row)
+                core_row = []
+        if core_row:
+            buttons.append(core_row)
+
+        buttons.append([
+            {"text": "➕ Добавить новый", "data": "gemini:prov:add_help"},
+            {"text": "« Главное меню", "data": "gemini:prov:menu"},
+        ])
+        buttons.append([
+            {"text": "✗ Закрыть", "data": "gemini:close:prov"},
+        ])
+
+        text = self._maybe_clean_symbols(text)
+        if self.config.get("clean_symbols_mode", False):
+            for r in buttons:
+                for b in r:
+                    b["text"] = self._clean_symbols_filter(b.get("text", ""))
+        try:
+            if isinstance(entity, Message):
+                await self.inline.form(text=text, message=entity, reply_markup=buttons)
+            elif isinstance(entity, InlineCall):
+                await entity.edit(text=text, reply_markup=buttons)
+        except Exception:
+            if isinstance(entity, Message):
+                await utils.answer(entity, text)
+
+    async def _show_provider_details_card(self, entity, prov_name: str):
+        prov_name = self._normalize_provider_name(prov_name)
+        is_custom = self._is_custom_provider(prov_name)
+        current = self._normalize_provider_name()
+        is_active = (prov_name == current)
+
+        if is_custom and prov_name in getattr(self, "custom_providers", {}):
+            cp = self.custom_providers[prov_name]
+            label = cp.get("label") or prov_name.capitalize()
+            url = cp.get("base_url") or "не задан"
+            raw_key = cp.get("api_key") or self._get_cfg_key(f"{prov_name}_api_key") or ""
+            model = cp.get("model") or self._get_cfg_key(f"{prov_name}_model") or "gpt-4o"
+            masked_k = self._mask_key(raw_key)
+            status_act = "✓ <b>АКТИВЕН</b>" if is_active else "◈ <i>не активен</i>"
+
+            text = (
+                f"⚙ <b>Настройки провайдера: {label}</b> [<code>{prov_name}</code>]\n\n"
+                f"• <b>Статус:</b> {status_act}\n"
+                f"• <b>Base URL:</b> <code>{utils.escape_html(url)}</code>\n"
+                f"• <b>API Ключ:</b> <code>{masked_k}</code>\n"
+                f"• <b>Модель:</b> <code>{utils.escape_html(model)}</code>\n\n"
+                f"• <b>Ячейки в <code>.cfg magent</code>:</b>\n"
+                f"  ├ <code>{prov_name}_api_key</code>\n"
+                f"  ├ <code>{prov_name}_base_url</code>\n"
+                f"  └ <code>{prov_name}_model</code>\n\n"
+                f"<i>Быстрое редактирование командой:</i>\n"
+                f"• <code>.mprovider edit {prov_name} key &lt;ключ&gt;</code>\n"
+                f"• <code>.mprovider edit {prov_name} url &lt;url&gt;</code>\n"
+                f"• <code>.mprovider edit {prov_name} model &lt;модель&gt;</code>"
+            )
+
+            buttons = []
+            if not is_active:
+                buttons.append([{"text": "✓ Сделать активным", "data": f"gemini:prov:act:{prov_name}"}])
+
+            buttons.append([
+                {"text": "🔑 Изменить ключ", "data": f"gemini:prov:edit_key:{prov_name}"},
+                {"text": "🌐 Изменить URL", "data": f"gemini:prov:edit_url:{prov_name}"},
+            ])
+            buttons.append([
+                {"text": "🏷 Изменить модель", "data": f"gemini:prov:edit_model:{prov_name}"},
+                {"text": "∅ Сбросить ключ", "data": f"gemini:prov:clear_key:{prov_name}"},
+            ])
+            buttons.append([
+                {"text": f"∅ Каталог моделей", "data": f"gemini:prov:models:{prov_name}"},
+                {"text": "🗑 Удалить", "data": f"gemini:prov:del_conf:{prov_name}"},
+            ])
+            buttons.append([
+                {"text": "« К списку управления", "data": "gemini:prov:manage_list"},
+                {"text": "✗ Закрыть", "data": "gemini:close:prov"},
+            ])
+        else:
+            spec = self._provider_spec(prov_name)
+            label = spec.get("label", prov_name.capitalize())
+            cfg_k = spec.get("cfg_key", f"{prov_name}_api_key")
+            raw_key = self._resolve_provider_api_key(prov_name)
+            masked_k = self._mask_key(raw_key)
+            status_act = "✓ <b>АКТИВЕН</b>" if is_active else "◈ <i>не активен</i>"
+            curr_model = self._provider_model_entry(prov_name).get("model") or spec.get("default_model", "")
+
+            text = (
+                f"⚙ <b>Встроенный провайдер: {label}</b> [<code>{prov_name}</code>]\n\n"
+                f"• <b>Статус:</b> {status_act}\n"
+                f"• <b>API Ключ:</b> <code>{masked_k}</code>\n"
+                f"• <b>Модель:</b> <code>{utils.escape_html(curr_model)}</code>\n\n"
+                f"• <b>Ячейка в <code>.cfg magent</code>:</b> <code>{cfg_k}</code>\n\n"
+                f"<i>Для смены настроек:</i>\n"
+                f"• <code>.mprovider edit {prov_name} key &lt;ключ&gt;</code>\n"
+                f"• <code>.mprovider edit {prov_name} model &lt;модель&gt;</code>\n"
+                f"• или <code>.cfg magent {cfg_k} &lt;ключ&gt;</code>"
+            )
+
+            buttons = []
+            if not is_active:
+                buttons.append([{"text": "✓ Сделать активным", "data": f"gemini:prov:act:{prov_name}"}])
+            buttons.append([
+                {"text": "🔑 Ввести ключ", "data": f"gemini:prov:edit_key:{prov_name}"},
+                {"text": f"∅ Каталог моделей", "data": f"gemini:prov:models:{prov_name}"},
+            ])
+            buttons.append([
+                {"text": "« К списку управления", "data": "gemini:prov:manage_list"},
+                {"text": "✗ Закрыть", "data": "gemini:close:prov"},
+            ])
+
+        text = self._maybe_clean_symbols(text)
+        if self.config.get("clean_symbols_mode", False):
+            for r in buttons:
+                for b in r:
+                    b["text"] = self._clean_symbols_filter(b.get("text", ""))
+        try:
+            if isinstance(entity, Message):
+                await self.inline.form(text=text, message=entity, reply_markup=buttons)
+            elif isinstance(entity, InlineCall):
+                await entity.edit(text=text, reply_markup=buttons)
+        except Exception:
+            if isinstance(entity, Message):
+                await utils.answer(entity, text)
+
     @loader.command()
     async def mprovider(self, message: Message):
-        """[add|del|list|провайдер] — Просмотр, добавление или переключение AI-провайдера."""
+        """[add|edit|del|list|manage|провайдер] — Просмотр, управление и редактирование AI-провайдеров."""
         args_raw = utils.get_args_raw(message).strip()
         if not args_raw:
             return await self._show_providers_interactive_card(message)
@@ -6223,7 +6504,143 @@ class magent(loader.Module):
         parts = args_raw.split()
         subcmd = parts[0].lower()
 
-        # 1. Добавить кастомного провайдера: .mprovider add <имя> <url> [ключ] [модель]
+        # 1. Интерактивное управление: .mprovider manage / .mprovider mgr
+        if subcmd in ("manage", "mgr", "settings", "control"):
+            return await self._show_manage_providers_menu(message)
+
+        # 2. Карточка конкретного провайдера: .mprovider info / view / card <имя>
+        if subcmd in ("info", "view", "show", "card", "details"):
+            target_p = parts[1].strip().lower() if len(parts) > 1 else self._normalize_provider_name()
+            return await self._show_provider_details_card(message, target_p)
+
+        # 3. Редактирование параметров провайдера: .mprovider edit <имя> <поле> <значение>
+        if subcmd in ("edit", "mod", "modify", "update"):
+            if len(parts) < 2:
+                return await utils.answer(
+                    message,
+                    "⌕ <b>Использование редактирования:</b>\n\n"
+                    "• <code>.mprovider edit &lt;имя&gt; key &lt;новый_ключ&gt;</code>\n"
+                    "• <code>.mprovider edit &lt;имя&gt; url &lt;новый_url&gt;</code>\n"
+                    "• <code>.mprovider edit &lt;имя&gt; model &lt;новая_модель&gt;</code>\n"
+                    "• <code>.mprovider edit &lt;имя&gt; &lt;новый_url&gt; [ключ] [модель]</code>\n\n"
+                    "<i>Или откройте меню управления:</i> <code>.mprovider manage</code>"
+                )
+            name = parts[1].strip().lower()
+            if len(parts) == 2:
+                return await self._show_provider_details_card(message, name)
+
+            field = parts[2].strip().lower()
+            val = " ".join(parts[3:]).strip() if len(parts) > 3 else ""
+
+            # Быстрое обновление по шаблону: .mprovider edit <name> <url> [key] [model]
+            if field.startswith("http://") or field.startswith("https://"):
+                url = field
+                key = parts[3].strip() if len(parts) > 3 else ""
+                if key.lower() in ("-", "none", "null", "no", "0"):
+                    key = ""
+                model = " ".join(parts[4:]).strip() if len(parts) > 4 else ""
+                if name not in getattr(self, "custom_providers", {}):
+                    self.custom_providers[name] = {"name": name, "label": name.capitalize()}
+                self.custom_providers[name]["base_url"] = url
+                if key:
+                    self.custom_providers[name]["api_key"] = key
+                    self._persist_key(f"{name}_api_key", key)
+                if model:
+                    self.custom_providers[name]["model"] = model
+                    self._persist_key(f"{name}_model", model)
+                self._persist_key(f"{name}_base_url", url)
+                self._save_custom_providers()
+                self._register_custom_provider_config(name, self.custom_providers[name])
+                if self._normalize_provider_name() == name:
+                    self._activate_provider(name)
+                return await utils.answer(
+                    message,
+                    f"✓ <b>Параметры провайдера <code>{name}</code> обновлены!</b>\n\n"
+                    f"• <b>URL:</b> <code>{utils.escape_html(url)}</code>\n"
+                    f"• <b>Ключ:</b> <code>{self._mask_key(self.custom_providers[name].get('api_key', ''))}</code>\n"
+                    f"• <b>Модель:</b> <code>{utils.escape_html(self.custom_providers[name].get('model', ''))}</code>"
+                )
+
+            # Редактирование ключа
+            if field in ("key", "api_key", "token", "k"):
+                if val.lower() in ("-", "none", "null", "clear", "0", "no", "reset"):
+                    val = ""
+                if name in getattr(self, "custom_providers", {}):
+                    self.custom_providers[name]["api_key"] = val
+                    self._save_custom_providers()
+                    self._persist_key(f"{name}_api_key", val)
+                    if self._normalize_provider_name() == name:
+                        self._persist_key("custom_api_key", val)
+                else:
+                    cfg_k = self._provider_spec(name).get("cfg_key", f"{name}_api_key")
+                    self._persist_key(cfg_k, val)
+                status_k = self._mask_key(val)
+                return await utils.answer(
+                    message,
+                    f"✓ <b>API-ключ для <code>{name}</code> успешно обновлен:</b> <code>{status_k}</code>\n"
+                    f"<i>Значение синхронизировано в <code>{name}_api_key</code>.</i>"
+                )
+
+            # Редактирование URL
+            if field in ("url", "base_url", "endpoint", "u"):
+                if not val:
+                    return await utils.answer(message, f"▲ Укажите URL: <code>.mprovider edit {name} url &lt;новый_url&gt;</code>")
+                if name in getattr(self, "custom_providers", {}):
+                    self.custom_providers[name]["base_url"] = val
+                    self._save_custom_providers()
+                    self._persist_key(f"{name}_base_url", val)
+                    if self._normalize_provider_name() == name:
+                        self._persist_key("custom_base_url", val)
+                else:
+                    self._persist_key(f"{name}_base_url", val)
+                return await utils.answer(
+                    message,
+                    f"✓ <b>Base URL для <code>{name}</code> успешно обновлен:</b> <code>{utils.escape_html(val)}</code>\n"
+                    f"<i>Значение синхронизировано в <code>{name}_base_url</code>.</i>"
+                )
+
+            # Редактирование модели
+            if field in ("model", "m", "mdl"):
+                if not val:
+                    return await utils.answer(message, f"▲ Укажите модель: <code>.mprovider edit {name} model &lt;модель&gt;</code>")
+                if name in getattr(self, "custom_providers", {}):
+                    self.custom_providers[name]["model"] = val
+                    self._save_custom_providers()
+                    self._persist_key(f"{name}_model", val)
+                    if self._normalize_provider_name() == name:
+                        self.config["custom_model"] = val
+                        self.config["model_name"] = val
+                else:
+                    m_cfg = self.PROVIDER_MODEL_CFG.get(name, f"{name}_model")
+                    self._persist_key(m_cfg, val)
+                    if self._normalize_provider_name() == name:
+                        self.config["model_name"] = val
+                self._remember_provider_model(name, val, manual=True)
+                return await utils.answer(
+                    message,
+                    f"✓ <b>Модель для <code>{name}</code> обновлена:</b> <code>{utils.escape_html(val)}</code>\n"
+                    f"<i>Значение синхронизировано в <code>{name}_model</code>.</i>"
+                )
+
+            # Редактирование названия/лейбла
+            if field in ("label", "title", "name_display"):
+                if not val:
+                    return await utils.answer(message, f"▲ Укажите имя: <code>.mprovider edit {name} label &lt;отображаемое имя&gt;</code>")
+                if name in getattr(self, "custom_providers", {}):
+                    self.custom_providers[name]["label"] = val
+                    self._save_custom_providers()
+                    self._register_custom_provider_config(name, self.custom_providers[name])
+                return await utils.answer(
+                    message,
+                    f"✓ <b>Отображаемое имя для <code>{name}</code> обновлено:</b> <b>{utils.escape_html(val)}</b>"
+                )
+
+            return await utils.answer(
+                message,
+                f"▲ Неизвестный параметр <code>{field}</code>. Доступно: <code>key</code>, <code>url</code>, <code>model</code>, <code>label</code>"
+            )
+
+        # 4. Добавить кастомного провайдера: .mprovider add <имя> <url> [ключ] [модель]
         if subcmd in ("add", "set", "new", "+"):
             if len(parts) < 3:
                 return await utils.answer(
@@ -6252,9 +6669,13 @@ class magent(loader.Module):
                 "model": model,
             }
             self._save_custom_providers()
+            self._register_custom_provider_config(name, self.custom_providers[name])
             if key:
+                self._persist_key(f"{name}_api_key", key)
                 self._persist_key("custom_api_key", key)
+            self._persist_key(f"{name}_base_url", url)
             self._persist_key("custom_base_url", url)
+            self._persist_key(f"{name}_model", model)
             self._remember_provider_model(name, model, manual=True)
             self._activate_provider(name)
             key_status = "✓ Задан" if key else "∅ Без ключа (локальный/свободный)"
@@ -6265,10 +6686,14 @@ class magent(loader.Module):
                 f"• <b>URL:</b> <code>{utils.escape_html(url)}</code>\n"
                 f"• <b>Ключ:</b> {key_status}\n"
                 f"• <b>Модель:</b> <code>{utils.escape_html(model)}</code>\n\n"
+                f"• <b>Добавлены новые ячейки в <code>.cfg magent</code>:</b>\n"
+                f"  ├ <code>{name}_api_key</code>\n"
+                f"  ├ <code>{name}_base_url</code>\n"
+                f"  └ <code>{name}_model</code>\n\n"
                 f"<i>Для проверки выполните:</i> <code>.m Привет</code>"
             )
 
-        # 2. Удалить кастомного провайдера: .mprovider del <имя>
+        # 5. Удалить кастомного провайдера: .mprovider del <имя>
         if subcmd in ("del", "delete", "rm", "remove", "-"):
             if len(parts) < 2:
                 return await utils.answer(message, "⌕ <b>Использование:</b> <code>.mprovider del &lt;имя&gt;</code>")
@@ -6277,13 +6702,14 @@ class magent(loader.Module):
                 return await utils.answer(message, f"▲ Провайдер <code>{name}</code> не найден в списке кастомных.")
             del self.custom_providers[name]
             self._save_custom_providers()
+            self._unregister_custom_provider_config(name)
             if self._normalize_provider_name() == name:
                 fallback = "groq" if self.config.get("groq_api_key") else "google"
                 self._activate_provider(fallback)
                 return await utils.answer(message, f"⌫ Провайдер <code>{name}</code> удален.\nАктивный переключен на <b>{self._provider_label(fallback)}</b>.")
             return await utils.answer(message, f"⌫ Кастомный провайдер <code>{name}</code> успешно удален.")
 
-        # 3. Список провайдеров: .mprovider list
+        # 6. Список провайдеров: .mprovider list
         if subcmd in ("list", "all", "ls"):
             lines = ["⬡ <b>Список доступных AI-провайдеров:</b>\n\n<b>Встроенные:</b>"]
             curr = self._normalize_provider_name()
@@ -6301,19 +6727,21 @@ class magent(loader.Module):
                     mark = "✓ " if name == curr else "• "
                     has_k = bool(cp.get("api_key"))
                     k_badge = "✓ ключ" if has_k else "∅ без ключа"
-                    lines.append(f"{mark}<b>{cp.get('label') or name}</b> [<code>{name}</code>] — {k_badge}\n  └ <i>{utils.escape_html(cp.get('base_url', ''))}</i> (модель: <code>{cp.get('model', '')}</code>)")
+                    lines.append(f"{mark}<b>{cp.get('label') or name}</b> [<code>{name}</code>] — {k_badge}\n  └ <i>{utils.escape_html(cp.get('base_url', ''))}</i> (модель: <code>{cp.get('model', '')}</code>)\n  └ <code>.cfg {name}_api_key</code> / <code>{name}_base_url</code> / <code>{name}_model</code>")
             else:
                 lines.append("<i>Кастомные провайдеры еще не добавлены.</i>")
 
             lines.append(
                 "\n<i>Команды:</i>\n"
-                "• <code>.mprovider &lt;имя&gt;</code> — переключить\n"
+                "• <code>.mprovider manage</code> — интерактивное меню управления\n"
+                "• <code>.mprovider edit &lt;имя&gt; [key|url|model] &lt;значение&gt;</code> — изменить настройки\n"
                 "• <code>.mprovider add &lt;имя&gt; &lt;url&gt; [ключ] [модель]</code> — добавить\n"
-                "• <code>.mprovider del &lt;имя&gt;</code> — удалить"
+                "• <code>.mprovider del &lt;имя&gt;</code> — удалить\n"
+                "• <code>.mprovider &lt;имя&gt;</code> — переключить"
             )
             return await utils.answer(message, "\n".join(lines))
 
-        # 4. Переключение провайдера: .mprovider <имя>
+        # 7. Переключение провайдера: .mprovider <имя>
         provider = self._normalize_provider_name(args_raw.lower())
         if not self._is_valid_provider(provider):
             return await utils.answer(message, self.strings["gprovider_usage"])
@@ -7083,6 +7511,113 @@ class magent(loader.Module):
                 except: pass
                 await self._show_providers_interactive_card(call)
                 return
+            if sub == "manage_list":
+                try: await call.answer()
+                except: pass
+                await self._show_manage_providers_menu(call)
+                return
+            if sub == "info":
+                prov = parts[3] if len(parts) > 3 else self._normalize_provider_name()
+                try: await call.answer()
+                except: pass
+                await self._show_provider_details_card(call, prov)
+                return
+            if sub == "act":
+                prov = parts[3]
+                self._activate_provider(prov)
+                try: await call.answer(f"✓ Активирован: {self._provider_label(prov)}")
+                except: pass
+                await self._show_provider_details_card(call, prov)
+                return
+            if sub == "clear_key":
+                prov = parts[3]
+                if prov in getattr(self, "custom_providers", {}):
+                    self.custom_providers[prov]["api_key"] = ""
+                    self._save_custom_providers()
+                    self._persist_key(f"{prov}_api_key", "")
+                    if self._normalize_provider_name() == prov:
+                        self._persist_key("custom_api_key", "")
+                else:
+                    cfg_k = self._provider_spec(prov).get("cfg_key", f"{prov}_api_key")
+                    self._persist_key(cfg_k, "")
+                try: await call.answer("Ключ сброшен!")
+                except: pass
+                await self._show_provider_details_card(call, prov)
+                return
+            if sub == "edit_key":
+                prov = parts[3]
+                lbl = self._provider_label(prov)
+                text = (
+                    f"🔑 <b>Изменение API-ключа для {lbl}</b> [<code>{prov}</code>]\n\n"
+                    f"Отправьте в чат команду с новым ключом:\n"
+                    f"<code>.mprovider edit {prov} key ВАШ_КЛЮЧ</code>\n\n"
+                    f"Или укажите через конфигуратор Hikka:\n"
+                    f"<code>.cfg magent {prov}_api_key ВАШ_КЛЮЧ</code>"
+                )
+                markup = [
+                    [{"text": f"« Назад к {lbl}", "data": f"gemini:prov:info:{prov}"}],
+                    [{"text": "« К списку управления", "data": "gemini:prov:manage_list"}]
+                ]
+                await call.edit(text, reply_markup=markup)
+                return
+            if sub == "edit_url":
+                prov = parts[3]
+                lbl = self._provider_label(prov)
+                text = (
+                    f"🌐 <b>Изменение Base URL для {lbl}</b> [<code>{prov}</code>]\n\n"
+                    f"Отправьте в чат команду с новым адресом API:\n"
+                    f"<code>.mprovider edit {prov} url https://api.example.com/v1</code>\n\n"
+                    f"Или укажите через конфигуратор Hikka:\n"
+                    f"<code>.cfg magent {prov}_base_url https://api.example.com/v1</code>"
+                )
+                markup = [
+                    [{"text": f"« Назад к {lbl}", "data": f"gemini:prov:info:{prov}"}],
+                    [{"text": "« К списку управления", "data": "gemini:prov:manage_list"}]
+                ]
+                await call.edit(text, reply_markup=markup)
+                return
+            if sub == "edit_model":
+                prov = parts[3]
+                lbl = self._provider_label(prov)
+                text = (
+                    f"🏷 <b>Изменение модели по умолчанию для {lbl}</b> [<code>{prov}</code>]\n\n"
+                    f"Отправьте в чат команду с именем модели:\n"
+                    f"<code>.mprovider edit {prov} model МОДЕЛЬ</code>\n\n"
+                    f"Или укажите через конфигуратор Hikka:\n"
+                    f"<code>.cfg magent {prov}_model МОДЕЛЬ</code>"
+                )
+                markup = [
+                    [{"text": f"« Назад к {lbl}", "data": f"gemini:prov:info:{prov}"}],
+                    [{"text": "« К списку управления", "data": "gemini:prov:manage_list"}]
+                ]
+                await call.edit(text, reply_markup=markup)
+                return
+            if sub == "del_conf":
+                prov = parts[3]
+                lbl = self._provider_label(prov)
+                text = (
+                    f"🗑 <b>Удаление провайдера {lbl}</b> [<code>{prov}</code>]\n\n"
+                    f"Вы действительно хотите удалить этот кастомный провайдер из базы и конфигурации?"
+                )
+                markup = [
+                    [{"text": "🗑 Да, удалить", "data": f"gemini:prov:del_do:{prov}"}],
+                    [{"text": "« Отмена", "data": f"gemini:prov:info:{prov}"}]
+                ]
+                await call.edit(text, reply_markup=markup)
+                return
+            if sub == "del_do":
+                prov = parts[3]
+                if prov in getattr(self, "custom_providers", {}):
+                    del self.custom_providers[prov]
+                    self._save_custom_providers()
+                    self._unregister_custom_provider_config(prov)
+                    if self._normalize_provider_name() == prov:
+                        fallback = "groq" if self.config.get("groq_api_key") else "google"
+                        self._activate_provider(fallback)
+                    try: await call.answer(f"Провайдер {prov} удален")
+                    except: pass
+                await self._show_manage_providers_menu(call)
+                return
             if sub == "add_help":
                 try: await call.answer()
                 except: pass
@@ -7095,11 +7630,15 @@ class magent(loader.Module):
                     "• <code>.mprovider add vani https://api.vani.ai/v1 vani_... anthropic/claude-sonnet-5.5</code>\n"
                     "• <code>.mprovider add wuxie https://cpa.wuxie233.com/budget/v1 sk-... gpt-6-astra</code>\n\n"
                     "<b>Управление:</b>\n"
-                    "• <code>.mprovider list</code> — список всех провайдеров\n"
+                    "• <code>.mprovider manage</code> — интерактивное меню управления\n"
+                    "• <code>.mprovider edit &lt;имя&gt; key &lt;ключ&gt;</code> — сменить ключ\n"
+                    "• <code>.mprovider edit &lt;имя&gt; url &lt;url&gt;</code> — сменить URL\n"
+                    "• <code>.mprovider edit &lt;имя&gt; model &lt;модель&gt;</code> — сменить модель\n"
                     "• <code>.mprovider del &lt;имя&gt;</code> — удалить свой провайдер\n"
                     "• <code>.mprovider &lt;имя&gt;</code> — быстрое переключение"
                 )
                 markup = [
+                    [{"text": "⚙ Управление провайдерами", "data": "gemini:prov:manage_list"}],
                     [{"text": "« Назад к списку", "data": "gemini:prov:menu"}],
                     [{"text": "✗ Закрыть", "data": "gemini:close:prov"}]
                 ]
