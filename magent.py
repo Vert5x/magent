@@ -26,6 +26,11 @@ import aiohttp
 from markdown_it import MarkdownIt
 import pytz
 import httpx
+import platform
+import math
+import urllib.parse
+import hashlib
+import stat
 
 # New SDK Check
 try:
@@ -3219,26 +3224,55 @@ class magent(loader.Module):
                description="Загрузить файл на публичный хостинг (x0.at, 0x0.st, catbox.moe) и получить прямую ссылку для скачивания. Можно указать path к файлу на диске ИЛИ content + filename.",
                parameters={"type": "OBJECT", "properties": {"path": s("Путь к файлу на диске"), "content": s("Текст/код для загрузки файлом"), "filename": s("Имя файла (например test.py)"), "service": s("Сервис: 'x0', '0x0' или 'catbox' (по умолчанию 'x0')")}, "required": []}),
             FD(name="tg_action",
-               description="Системные действия и полное управление аккаунтом/чатами в Telegram: block_user, unblock_user, get_blocked_users, get_contacts, add_contact, delete_contact, get_user_info, get_self_profile, set_profile_name, set_profile_bio, set_profile_username, get_chat_info, get_chat_admins, get_participants, kick_user, ban_user, unban_user, mute_user, unmute_user, promote_user, demote_user, set_chat_title, set_chat_about, join_chat, leave_chat, pin_message, unpin_message, delete_messages, send_message, edit_message, forward_message, react_message, search_messages, get_message_by_id, mark_chat_read, clear_chat_history, get_dialogs, get_unread_overview, archive_chat, unarchive_chat.",
+               description="Системные действия и полное управление аккаунтом/чатами в Telegram: block_user, unblock_user, get_blocked_users, get_contacts, add_contact, delete_contact, get_user_info, get_self_profile, set_profile_name, set_profile_bio, set_profile_username, get_chat_info, get_chat_admins, get_participants, kick_user, ban_user, unban_user, mute_user, unmute_user, promote_user, demote_user, set_chat_title, set_chat_about, join_chat, leave_chat, pin_message, unpin_message, delete_messages, send_message, edit_message, forward_message, react_message, search_messages, get_message_by_id, mark_chat_read, clear_chat_history, get_dialogs, get_unread_overview, archive_chat, unarchive_chat, create_channel, create_supergroup, create_group, export_invite_link, get_common_chats, click_button, download_media, schedule_message, set_slowmode, pin_chat, unpin_chat, mute_chat, unmute_chat.",
                parameters={"type": "OBJECT", "properties": {
-                   "action": s("Действие: block_user/unblock_user/get_blocked_users/get_contacts/add_contact/delete_contact/get_user_info/get_self_profile/set_profile_name/set_profile_bio/set_profile_username/get_chat_info/get_chat_admins/get_participants/kick_user/ban_user/unban_user/mute_user/unmute_user/promote_user/demote_user/set_chat_title/set_chat_about/join_chat/leave_chat/pin_message/unpin_message/delete_messages/send_message/edit_message/forward_message/react_message/search_messages/get_message_by_id/mark_chat_read/clear_chat_history/get_dialogs/get_unread_overview/archive_chat/unarchive_chat"),
+                   "action": s("Действие: block_user/unblock_user/get_blocked_users/get_contacts/add_contact/delete_contact/get_user_info/get_self_profile/set_profile_name/set_profile_bio/set_profile_username/get_chat_info/get_chat_admins/get_participants/kick_user/ban_user/unban_user/mute_user/unmute_user/promote_user/demote_user/set_chat_title/set_chat_about/join_chat/leave_chat/pin_message/unpin_message/delete_messages/send_message/edit_message/forward_message/react_message/search_messages/get_message_by_id/mark_chat_read/clear_chat_history/get_dialogs/get_unread_overview/archive_chat/unarchive_chat/create_channel/create_supergroup/create_group/export_invite_link/get_common_chats/click_button/download_media/schedule_message/set_slowmode/pin_chat/unpin_chat/mute_chat/unmute_chat"),
                    "target": s("Чат или пользователь (id, @username или 'me')"),
-                   "user": s("Целевой пользователь для модерации или контактов (id, @username)"),
-                   "text": s("Текст сообщения, описания, био, названия или поисковый запрос"),
+                   "user": s("Целевой пользователь для модерации, инфо или контактов (id, @username)"),
+                   "text": s("Текст сообщения, описания, био, названия, текст кнопки или поисковый запрос"),
+                   "title": s("Название для нового канала или группы"),
                    "message_id": i("ID конкретного сообщения"),
                    "message_ids": {"type": "ARRAY", "items": {"type": "INTEGER"}, "description": "Список ID сообщений"},
                    "limit": i("Лимит количества элементов (по умолчанию 20)"),
                    "query": s("Поисковый запрос для search_messages"),
                    "emoji": s("Эмодзи для реакции react_message (напр. 👍, 🔥, ❤️, 🤡, 👏)"),
-                   "seconds": i("Длительность мута/ограничения в секундах (по умолчанию 3600)"),
+                   "seconds": i("Длительность мута/ограничения/slowmode или задержка расписания в секундах"),
+                   "row": i("Индекс ряда кнопки для click_button (0-indexed)"),
+                   "col": i("Индекс колонки кнопки для click_button (0-indexed)"),
+                   "path": s("Путь для сохранения файла при download_media"),
                    "first_name": s("Имя для профиля или контакта"),
                    "last_name": s("Фамилия для профиля или контакта"),
                    "phone": s("Номер телефона для добавления контакта"),
-                   "about": s("Описание (биография) для профиля или чата"),
+                   "about": s("Описание (биография) для профиля, чата или канала"),
                    "username": s("Юзернейм для профиля (без @)"),
                    "reply_to": i("ID сообщения для ответа"),
                    "to_chat": s("Чат назначения при пересылке forward_message"),
                }, "required": ["action"]}),
+            FD(name="http_request",
+               description="Выполнить HTTP-запрос (GET, POST, PUT, DELETE, PATCH) с произвольными заголовками, телом (JSON или строкой) и получить статус, заголовки и тело ответа. Для вызова REST API, вебхуков, микросервисов.",
+               parameters={"type": "OBJECT", "properties": {
+                   "url": s("Полный URL (http:// или https://)"),
+                   "method": s("Метод: GET, POST, PUT, DELETE, PATCH (по умолчанию GET)"),
+                   "headers": {"type": "OBJECT", "description": "Словарь заголовков (например Authorization: Bearer ...)"},
+                   "json_data": {"type": "OBJECT", "description": "JSON объект для отправки в теле запроса"},
+                   "data": s("Строка данных для отправки"),
+                   "timeout": i("Таймаут в секундах (по умолчанию 30)"),
+               }, "required": ["url"]}),
+            FD(name="python_eval",
+               description="Выполнить Python-код асинхронно прямо в процессе бота. Доступны: client (Telethon), db (Hikka), self (модуль), asyncio, json, re, os, time, datetime, math, utils. Возвращает stdout/stderr и результат выражения.",
+               parameters={"type": "OBJECT", "properties": {"code": s("Код Python")}, "required": ["code"]}),
+            FD(name="sys_info",
+               description="Получить полную информацию о хосте и системе: загрузка CPU, ядра, память (RAM, swap), диск, load average, uptime, ОС, запущенные Docker контейнеры.",
+               parameters={"type": "OBJECT", "properties": {}, "required": []}),
+            FD(name="get_weather",
+               description="Получить текущую погоду и прогноз для любого города через сервис wttr.in.",
+               parameters={"type": "OBJECT", "properties": {"city": s("Название города (напр. Москва, Санкт-Петербург, London, Tokyo)")}, "required": ["city"]}),
+            FD(name="dns_lookup",
+               description="Выполнить быстрый DNS-запрос для домена (типы: A, AAAA, MX, TXT, NS, CNAME) через Cloudflare DNS.",
+               parameters={"type": "OBJECT", "properties": {"domain": s("Домен (напр. example.com)"), "record_type": s("Тип записи (A, AAAA, MX, TXT, NS, CNAME, по умолчанию A)")}, "required": ["domain"]}),
+            FD(name="file_info",
+               description="Подробные метаданные файла или директории: точный размер, права доступа, дата изменения, хеш SHA256 и число строк.",
+               parameters={"type": "OBJECT", "properties": {"path": s("Путь к файлу на диске")}, "required": ["path"]}),
             FD(name="save_skill",
                description="Сохранить постоянный навык/факт в долговременную память (навык запоминается навсегда и применяется во всех будущих ответах).",
                parameters={"type": "OBJECT", "properties": {"name": s("Короткое имя навыка, латиницей, без пробелов"), "content": s("Текст навыка — что запомнить или как себя вести")}, "required": ["name", "content"]}),
@@ -3312,17 +3346,21 @@ class magent(loader.Module):
             f("replace_in_file", "Точечная замена фрагмента текста в файле на новый без перезаписи всего файла.", {"path": s("Путь к файлу"), "old_text": s("Точный текст для замены"), "new_text": s("Новый текст")}, ["path", "old_text", "new_text"]),
             f("read_chat_file", "Прочитать или скачать файл/документ/медиа из сообщения Telegram.", {"chat": s("ID чата (по умолчанию текущий)"), "message_id": i("ID сообщения (по умолчанию отвеченное)")}, []),
             f("upload_file", "Загрузить файл на публичный хостинг (x0.at, 0x0.st, catbox) и получить прямую ссылку. Передайте path ИЛИ content + filename.", {"path": s("Путь к файлу"), "content": s("Текст/код файла"), "filename": s("Имя файла"), "service": s("Хостинг ('x0', '0x0', 'catbox')")}, []),
-            f("tg_action", "Системные действия и управление аккаунтом/чатами в Telegram (block_user, unblock_user, get_blocked_users, get_contacts, add_contact, delete_contact, get_user_info, get_self_profile, set_profile_name, set_profile_bio, set_profile_username, get_chat_info, get_chat_admins, get_participants, kick_user, ban_user, unban_user, mute_user, unmute_user, promote_user, demote_user, set_chat_title, set_chat_about, join_chat, leave_chat, pin_message, unpin_message, delete_messages, send_message, edit_message, forward_message, react_message, search_messages, get_message_by_id, mark_chat_read, clear_chat_history, get_dialogs, get_unread_overview, archive_chat, unarchive_chat).", {
+            f("tg_action", "Системные действия и управление аккаунтом/чатами в Telegram (block_user, unblock_user, get_blocked_users, get_contacts, add_contact, delete_contact, get_user_info, get_self_profile, set_profile_name, set_profile_bio, set_profile_username, get_chat_info, get_chat_admins, get_participants, kick_user, ban_user, unban_user, mute_user, unmute_user, promote_user, demote_user, set_chat_title, set_chat_about, join_chat, leave_chat, pin_message, unpin_message, delete_messages, send_message, edit_message, forward_message, react_message, search_messages, get_message_by_id, mark_chat_read, clear_chat_history, get_dialogs, get_unread_overview, archive_chat, unarchive_chat, create_channel, create_supergroup, create_group, export_invite_link, get_common_chats, click_button, download_media, schedule_message, set_slowmode, pin_chat, unpin_chat, mute_chat, unmute_chat).", {
                 "action": s("Действие"),
                 "target": s("Чат/юзер (id, @username, me)"),
                 "user": s("Пользователь (id, @username)"),
-                "text": s("Текст сообщения/био/названия"),
+                "text": s("Текст сообщения/био/названия/кнопки"),
+                "title": s("Название группы или канала"),
                 "message_id": i("ID сообщения"),
                 "message_ids": {"type": "array", "items": {"type": "integer"}, "description": "ID сообщений"},
                 "limit": i("Лимит"),
                 "query": s("Текст поиска"),
                 "emoji": s("Эмодзи реакции"),
-                "seconds": i("Секунды мута"),
+                "seconds": i("Секунды мута/slowmode/таймера"),
+                "row": i("Индекс ряда кнопки (0-indexed)"),
+                "col": i("Индекс колонки кнопки (0-indexed)"),
+                "path": s("Путь для сохранения файла"),
                 "first_name": s("Имя"),
                 "last_name": s("Фамилия"),
                 "phone": s("Телефон"),
@@ -3331,6 +3369,12 @@ class magent(loader.Module):
                 "reply_to": i("ID ответа"),
                 "to_chat": s("Чат назначения"),
             }, ["action"]),
+            f("http_request", "Выполнить HTTP-запрос (GET, POST, PUT, DELETE, PATCH) с произвольными заголовками, телом (JSON/data) к REST API или вебхукам.", {"url": s("URL"), "method": s("Метод (GET/POST/PUT/DELETE/PATCH)"), "headers": {"type": "object", "description": "Заголовки"}, "json_data": {"type": "object", "description": "JSON тело"}, "data": s("Строка тела"), "timeout": i("Таймаут, сек")}, ["url"]),
+            f("python_eval", "Выполнить Python-код асинхронно в процессе бота. Доступны: client (Telethon), db (Hikka), self, asyncio, json, re, os, time, datetime, math, utils.", {"code": s("Код Python")}, ["code"]),
+            f("sys_info", "Получить полную информацию о хосте: CPU, RAM (total/used/free/swap), диск, load average, uptime, ОС, контейнеры Docker.", {}, []),
+            f("get_weather", "Получить текущую погоду и прогноз для города через wttr.in.", {"city": s("Город")}, ["city"]),
+            f("dns_lookup", "Выполнить DNS-запрос для домена (A, AAAA, MX, TXT, NS, CNAME) через Cloudflare DNS.", {"domain": s("Домен"), "record_type": s("Тип записи (по умолчанию A)")}, ["domain"]),
+            f("file_info", "Подробные метаданные файла/папки: точный размер, права, дата, SHA256 и число строк.", {"path": s("Путь к файлу")}, ["path"]),
             f("list_dir", "Показать содержимое директории на хосте.", {"path": s("Путь (по умолчанию текущая)")}, []),
             f("tg_send", "Отправить сообщение в Telegram-чат от имени владельца. chat: id, @username или 'me'.", {"chat": s("id, @username или me"), "text": s("Текст")}, ["chat", "text"]),
             f("tg_history", "Получить последние сообщения из Telegram-чата. chat: id, @username или 'me'.", {"chat": s("id, @username или me"), "limit": i("1-50")}, ["chat"]),
@@ -3343,13 +3387,17 @@ class magent(loader.Module):
         "run_terminal", "read_file", "write_file", "search_in_file", "find_files",
         "send_file", "replace_in_file", "read_chat_file", "upload_file", "tg_action", "tg_act", "list_dir",
         "tg_send", "tg_history", "web_search", "fetch_url", "save_skill",
+        "http_request", "python_eval", "sys_info", "get_weather", "dns_lookup", "file_info",
         "block_user", "unblock_user", "get_blocked_users", "get_contacts", "add_contact", "delete_contact",
         "get_user_info", "get_self_profile", "set_profile_name", "set_profile_bio", "set_profile_username",
         "get_chat_info", "get_chat_admins", "get_participants", "kick_user", "ban_user", "unban_user",
         "mute_user", "unmute_user", "promote_user", "demote_user", "set_chat_title", "set_chat_about",
         "join_chat", "leave_chat", "pin_message", "unpin_message", "delete_messages", "send_message",
         "edit_message", "forward_message", "react_message", "search_messages", "get_message_by_id",
-        "mark_chat_read", "clear_chat_history", "archive_chat", "unarchive_chat", "get_dialogs", "get_unread_overview"
+        "mark_chat_read", "clear_chat_history", "archive_chat", "unarchive_chat", "get_dialogs", "get_unread_overview",
+        "create_channel", "create_supergroup", "create_group", "export_invite_link", "get_common_chats",
+        "click_button", "download_media", "schedule_message", "set_slowmode", "pin_chat", "unpin_chat",
+        "mute_chat", "unmute_chat"
     )
 
     def _normalize_tool_call(self, tc):
@@ -3533,6 +3581,25 @@ class magent(loader.Module):
         if name == "fetch_url":
             u = str(args.get("url", ""))[:35]
             return f"fetch({u})"
+        if name == "http_request":
+            m = str(args.get("method", "GET")).upper()
+            u = str(args.get("url", ""))[:25]
+            return f"http({m} {u})"
+        if name == "python_eval":
+            c = str(args.get("code", "")).replace("\n", " ").strip()[:30]
+            return f"py({c})"
+        if name == "sys_info":
+            return "sys_info()"
+        if name == "get_weather":
+            c = str(args.get("city", ""))[:20]
+            return f"weather({c})"
+        if name == "dns_lookup":
+            d = str(args.get("domain", ""))[:20]
+            rt = str(args.get("record_type", "A")).upper()
+            return f"dns({d} {rt})"
+        if name == "file_info":
+            p = os.path.basename(str(args.get("path", ""))) or "path"
+            return f"file_info({p})"
         a = ", ".join(f"{k}={str(v)[:24]}" for k, v in args.items())
         return f"{name}({a})"
 
@@ -3803,10 +3870,34 @@ class magent(loader.Module):
                 "join_chat", "leave_chat", "pin_message", "unpin_message", "delete_messages",
                 "send_message", "edit_message", "forward_message", "react_message", "search_messages",
                 "get_message_by_id", "mark_chat_read", "clear_chat_history", "archive_chat", "unarchive_chat",
-                "get_dialogs", "get_unread_overview"
+                "get_dialogs", "get_unread_overview", "create_channel", "create_supergroup", "create_group",
+                "export_invite_link", "get_common_chats", "click_button", "download_media", "schedule_message",
+                "set_slowmode", "pin_chat", "unpin_chat", "mute_chat", "unmute_chat"
             ):
                 act = str(args.get("action", "")).strip() or name
                 return await self._tool_tg_action(action=act, **args)
+            if name == "http_request":
+                return await self._tool_http_request(
+                    url=str(args.get("url", "")),
+                    method=str(args.get("method", "GET")),
+                    headers=args.get("headers"),
+                    json_data=args.get("json_data"),
+                    data=args.get("data"),
+                    timeout=int(args.get("timeout", 30) or 30),
+                )
+            if name == "python_eval":
+                return await self._tool_python_eval(str(args.get("code", "")))
+            if name == "sys_info":
+                return await self._tool_sys_info()
+            if name == "get_weather":
+                return await self._tool_get_weather(str(args.get("city", "")))
+            if name == "dns_lookup":
+                return await self._tool_dns_lookup(
+                    domain=str(args.get("domain", "")),
+                    record_type=str(args.get("record_type", "A")),
+                )
+            if name == "file_info":
+                return self._tool_file_info(str(args.get("path", "")))
             if name == "list_dir":
                 return self._tool_list_dir(str(args.get("path", "") or "."))
             if name == "tg_send":
@@ -4471,7 +4562,139 @@ class magent(loader.Module):
                 await self.client(EditPeerFoldersRequest(folder_peers=[InputFolderPeer(peer=peer, folder_id=0)]))
                 return f"OK: чат {getattr(entity, 'title', target_chat)} разархивирован."
 
-            return f"ERROR: неизвестное действие '{action}'. Поддерживаются: block_user, unblock_user, get_blocked_users, get_contacts, add_contact, delete_contact, get_user_info, get_self_profile, set_profile_name, set_profile_bio, set_profile_username, get_chat_info, get_chat_admins, get_participants, kick_user, ban_user, unban_user, mute_user, unmute_user, promote_user, demote_user, set_chat_title, set_chat_about, join_chat, leave_chat, pin_message, unpin_message, delete_messages, send_message, edit_message, forward_message, react_message, search_messages, get_message_by_id, mark_chat_read, clear_chat_history, get_dialogs, get_unread_overview, archive_chat, unarchive_chat."
+            # --- 6. Создание каналов/групп, инвайты, клики, скачивание и таймеры ---
+            if act in ("create_channel", "create_supergroup", "create_group"):
+                try:
+                    from telethon.tl.functions.channels import CreateChannelRequest
+                except ImportError:
+                    from herokutl.tl.functions.channels import CreateChannelRequest
+                title = str(kwargs.get("title") or kwargs.get("text") or target or "New Chat").strip()
+                about = str(kwargs.get("about") or "").strip()
+                is_mega = "group" in act or bool(kwargs.get("megagroup", False))
+                res = await self.client(CreateChannelRequest(title=title, about=about, megagroup=is_mega))
+                c_id = getattr(getattr(res, "chats", [None])[0], "id", None)
+                kind = "супергруппа" if is_mega else "канал"
+                return f"OK: {kind} '{title}' успешно создан (id: {c_id})."
+
+            if act in ("export_invite_link", "invite_link", "get_invite_link"):
+                try:
+                    from telethon.tl.functions.messages import ExportChatInviteRequest
+                except ImportError:
+                    from herokutl.tl.functions.messages import ExportChatInviteRequest
+                res = await self.client(ExportChatInviteRequest(peer=entity))
+                link = getattr(res, "link", None)
+                return f"OK: ссылка-приглашение для {getattr(entity, 'title', target_chat)}: {link}"
+
+            if act in ("get_common_chats", "common_chats"):
+                u_target = kwargs.get("user") or target or target_chat
+                u_ent = await self._tool_resolve_entity(u_target)
+                try:
+                    from telethon.tl.functions.messages import GetCommonChatsRequest
+                except ImportError:
+                    from herokutl.tl.functions.messages import GetCommonChatsRequest
+                res = await self.client(GetCommonChatsRequest(user_id=u_ent, max_id=0, limit=max(1, min(int(limit or 50), 100))))
+                items = []
+                for c in getattr(res, "chats", []):
+                    items.append(f"• [{c.id}] {getattr(c, 'title', 'Chat')}")
+                return f"Общие чаты с {getattr(u_ent, 'id', u_target)} ({len(items)}):\n" + ("\n".join(items) if items else "Общих чатов нет.")
+
+            if act in ("click_button", "press_button"):
+                m_id = kwargs.get("message_id")
+                if not m_id:
+                    return "ERROR: укажите message_id для click_button"
+                msg = await self.client.get_messages(entity, ids=int(m_id))
+                if not msg:
+                    return f"ERROR: сообщение {m_id} не найдено"
+                btn_text = str(kwargs.get("text") or kwargs.get("query") or "").strip()
+                row_idx = kwargs.get("row")
+                col_idx = kwargs.get("col")
+                clicked = False
+                if btn_text and msg.buttons:
+                    for r_i, row in enumerate(msg.buttons):
+                        for c_i, b in enumerate(row):
+                            if btn_text.lower() in (b.text or "").lower():
+                                await b.click()
+                                clicked = True
+                                return f"OK: нажата кнопка '{b.text}' (ряд {r_i + 1}, колонка {c_i + 1})"
+                elif row_idx is not None and msg.buttons:
+                    r_i = int(row_idx)
+                    c_i = int(col_idx or 0)
+                    if 0 <= r_i < len(msg.buttons) and 0 <= c_i < len(msg.buttons[r_i]):
+                        b = msg.buttons[r_i][c_i]
+                        await b.click()
+                        return f"OK: нажата кнопка '{b.text}' [{r_i}:{c_i}]"
+                if not clicked:
+                    avail = []
+                    if msg.buttons:
+                        for row in msg.buttons:
+                            avail.extend([f"'{b.text}'" for b in row])
+                    return f"ERROR: кнопка не найдена. Доступные кнопки: {', '.join(avail) if avail else 'кнопок нет'}"
+
+            if act in ("download_media", "download_file"):
+                m_id = kwargs.get("message_id")
+                msg = None
+                if m_id:
+                    msg = await self.client.get_messages(entity, ids=int(m_id))
+                else:
+                    async for m in self.client.iter_messages(entity, limit=1):
+                        if m.media:
+                            msg = m
+                            break
+                if not msg or not msg.media:
+                    return "ERROR: в сообщении нет медиафайла для скачивания"
+                save_path = str(kwargs.get("path") or "").strip() or None
+                downloaded = await self.client.download_media(msg, file=save_path)
+                return f"OK: медиа успешно скачано в '{downloaded}'"
+
+            if act in ("schedule_message", "schedule"):
+                msg_text = str(kwargs.get("text") or "").strip()
+                if not msg_text:
+                    return "ERROR: укажите text для schedule_message"
+                sec = int(kwargs.get("seconds", 60) or 60)
+                sched_date = datetime.now(pytz.utc) + timedelta(seconds=sec)
+                sent = await self.client.send_message(entity, msg_text, schedule=sched_date)
+                return f"OK: сообщение запланировано на {sched_date.strftime('%Y-%m-%d %H:%M:%S UTC')} (id: {sent.id})"
+
+            if act in ("set_slowmode", "slowmode"):
+                try:
+                    from telethon.tl.functions.channels import ToggleSlowModeRequest
+                except ImportError:
+                    from herokutl.tl.functions.channels import ToggleSlowModeRequest
+                sec = int(kwargs.get("seconds", 0) or 0)
+                await self.client(ToggleSlowModeRequest(channel=entity, seconds=sec))
+                return f"OK: slowmode в {getattr(entity, 'title', target_chat)} установлен в {sec} сек."
+
+            if act in ("pin_chat", "unpin_chat"):
+                try:
+                    from telethon.tl.functions.messages import ToggleDialogPinRequest
+                    from telethon.tl.types import InputDialogPeer
+                except ImportError:
+                    from herokutl.tl.functions.messages import ToggleDialogPinRequest
+                    from herokutl.tl.types import InputDialogPeer
+                is_pinned = (act == "pin_chat")
+                peer = await self.client.get_input_entity(entity)
+                await self.client(ToggleDialogPinRequest(peer=InputDialogPeer(peer=peer), pinned=is_pinned))
+                st = "закреплен" if is_pinned else "откреплен"
+                return f"OK: чат {getattr(entity, 'title', target_chat)} {st} в списке диалогов."
+
+            if act in ("mute_chat", "unmute_chat"):
+                try:
+                    from telethon.tl.functions.account import UpdateNotifySettingsRequest
+                    from telethon.tl.types import InputNotifyPeer, InputPeerNotifySettings
+                except ImportError:
+                    from herokutl.tl.functions.account import UpdateNotifySettingsRequest
+                    from herokutl.tl.types import InputNotifyPeer, InputPeerNotifySettings
+                is_mute = (act == "mute_chat")
+                mute_until = int(time.time() + (int(kwargs.get("seconds") or 365 * 86400))) if is_mute else 0
+                peer = await self.client.get_input_entity(entity)
+                await self.client(UpdateNotifySettingsRequest(
+                    peer=InputNotifyPeer(peer=peer),
+                    settings=InputPeerNotifySettings(mute_until=mute_until)
+                ))
+                st = f"заглушен (до {mute_until})" if is_mute else "разглушен"
+                return f"OK: чат {getattr(entity, 'title', target_chat)} {st}."
+
+            return f"ERROR: неизвестное действие '{action}'. Поддерживаются: block_user, unblock_user, get_blocked_users, get_contacts, add_contact, delete_contact, get_user_info, get_self_profile, set_profile_name, set_profile_bio, set_profile_username, get_chat_info, get_chat_admins, get_participants, kick_user, ban_user, unban_user, mute_user, unmute_user, promote_user, demote_user, set_chat_title, set_chat_about, join_chat, leave_chat, pin_message, unpin_message, delete_messages, send_message, edit_message, forward_message, react_message, search_messages, get_message_by_id, mark_chat_read, clear_chat_history, get_dialogs, get_unread_overview, archive_chat, unarchive_chat, create_channel, create_supergroup, create_group, export_invite_link, get_common_chats, click_button, download_media, schedule_message, set_slowmode, pin_chat, unpin_chat, mute_chat, unmute_chat."
         except Exception as e:
             return f"ERROR: {type(e).__name__}: {e}"
 
@@ -4604,6 +4827,241 @@ class magent(loader.Module):
         if not results:
             return "No results (или DuckDuckGo сменил разметку). Попробуй fetch_url с конкретным сайтом."
         return f"Результаты поиска «{q}»:\n\n" + "\n\n".join(results)
+
+    async def _tool_http_request(self, url: str, method: str = "GET", headers: dict = None, json_data: dict = None, data: str = None, timeout: int = 30):
+        url = str(url or "").strip()
+        if not url:
+            return "ERROR: URL is required"
+        if not re.match(r"(?i)^https?://", url):
+            url = "https://" + url
+        method = str(method or "GET").strip().upper()
+        h = dict(headers or {}) if isinstance(headers, dict) else {}
+        h.setdefault("User-Agent", self._tool_user_agent())
+        timeout_val = aiohttp.ClientTimeout(total=max(1, min(int(timeout or 30), 120)))
+        t0 = time.time()
+        session, req_proxy = self._tools_aiohttp_session()
+        try:
+            async with session as s:
+                kwargs = {"headers": h, "proxy": req_proxy, "timeout": timeout_val, "allow_redirects": True}
+                if json_data is not None:
+                    kwargs["json"] = json_data
+                elif data is not None:
+                    kwargs["data"] = data
+                async with s.request(method, url, **kwargs) as resp:
+                    status = resp.status
+                    dur = round(time.time() - t0, 3)
+                    content_type = resp.headers.get("Content-Type", "")
+                    if "application/json" in content_type:
+                        try:
+                            body_json = await resp.json()
+                            body_str = json.dumps(body_json, indent=2, ensure_ascii=False)
+                        except Exception:
+                            body_str = await resp.text(errors="replace")
+                    else:
+                        body_str = await resp.text(errors="replace")
+                    out_limit = int(self.config.get("tools_output_limit", 6000))
+                    if len(body_str) > out_limit:
+                        body_str = body_str[:out_limit] + f"\n... [обрезано, всего {len(body_str)} симв.]"
+                    resp_headers = dict(list(resp.headers.items())[:6])
+                    return f"HTTP {status} {resp.reason} ({dur}s)\nHeaders: {resp_headers}\n\n{body_str}"
+        except Exception as e:
+            return f"ERROR: HTTP {method} failed: {type(e).__name__}: {str(e)[:160]}"
+
+    async def _tool_python_eval(self, code: str):
+        code = str(code or "").strip()
+        if not code:
+            return "ERROR: empty code"
+        import io
+        import contextlib
+        import traceback
+        stdout_buf = io.StringIO()
+        stderr_buf = io.StringIO()
+        env = {
+            "client": getattr(self, "client", None),
+            "db": getattr(self, "db", None),
+            "self": self,
+            "asyncio": asyncio,
+            "json": json,
+            "re": re,
+            "os": os,
+            "time": time,
+            "datetime": datetime,
+            "timedelta": timedelta,
+            "math": math,
+            "utils": utils,
+        }
+        lines = code.splitlines()
+        try:
+            with contextlib.redirect_stdout(stdout_buf), contextlib.redirect_stderr(stderr_buf):
+                if len(lines) == 1 and not lines[0].startswith(("def ", "class ", "import ", "from ", "for ", "while ", "if ", "try:", "async ")):
+                    try:
+                        res = eval(code, env)
+                        if asyncio.iscoroutine(res):
+                            res = await res
+                        out = stdout_buf.getvalue()
+                        ret_repr = repr(res) if res is not None else ""
+                        combined = (out + ("\n" if out and ret_repr else "") + ret_repr).strip()
+                        return combined or "OK (eval returned None)"
+                    except SyntaxError:
+                        pass
+                indented = "\n".join("    " + line for line in lines)
+                wrapped_func = f"async def __magent_async_exec__():\n{indented}\n"
+                local_scope = {}
+                exec(wrapped_func, env, local_scope)
+                ret_val = await local_scope["__magent_async_exec__"]()
+                out = stdout_buf.getvalue()
+                err = stderr_buf.getvalue()
+                res_part = f"\nReturn: {repr(ret_val)}" if ret_val is not None else ""
+                err_part = f"\nStderr: {err}" if err else ""
+                combined = (out + res_part + err_part).strip()
+                return combined or "OK (executed successfully with no output)"
+        except Exception as e:
+            tb = traceback.format_exc(limit=3)
+            return f"ERROR: {type(e).__name__}: {e}\n{tb}"
+
+    async def _tool_sys_info(self):
+        try:
+            info = {}
+            try:
+                with open("/proc/loadavg", "r") as f:
+                    loads = f.read().strip().split()
+                    info["load_average"] = {"1m": loads[0], "5m": loads[1], "15m": loads[2]}
+            except Exception:
+                pass
+            try:
+                with open("/proc/uptime", "r") as f:
+                    uptime_sec = float(f.read().strip().split()[0])
+                    info["uptime"] = self._human_duration(uptime_sec)
+            except Exception:
+                pass
+            try:
+                info["cpu_cores"] = os.cpu_count() or 1
+            except Exception:
+                pass
+            try:
+                with open("/proc/meminfo", "r") as f:
+                    mem_raw = {}
+                    for line in f:
+                        parts = line.split(":")
+                        if len(parts) == 2:
+                            mem_raw[parts[0].strip()] = parts[1].strip()
+                    total = int(mem_raw.get("MemTotal", "0 kB").split()[0]) // 1024
+                    free = int(mem_raw.get("MemFree", "0 kB").split()[0]) // 1024
+                    avail = int(mem_raw.get("MemAvailable", "0 kB").split()[0]) // 1024
+                    used = max(0, total - avail)
+                    swap_total = int(mem_raw.get("SwapTotal", "0 kB").split()[0]) // 1024
+                    swap_free = int(mem_raw.get("SwapFree", "0 kB").split()[0]) // 1024
+                    swap_used = max(0, swap_total - swap_free)
+                    info["memory_mb"] = {
+                        "total": total, "used": used, "available": avail, "free": free,
+                        "swap_total": swap_total, "swap_used": swap_used,
+                    }
+            except Exception:
+                pass
+            try:
+                st = os.statvfs("/")
+                disk_total_mb = (st.f_blocks * st.f_frsize) // (1024 * 1024)
+                disk_free_mb = (st.f_bavail * st.f_frsize) // (1024 * 1024)
+                disk_used_mb = max(0, disk_total_mb - disk_free_mb)
+                disk_pct = round((disk_used_mb / disk_total_mb) * 100, 1) if disk_total_mb else 0
+                info["disk_mb"] = {
+                    "total": disk_total_mb, "used": disk_used_mb, "free": disk_free_mb, "used_percent": f"{disk_pct}%"
+                }
+            except Exception:
+                pass
+            info["os"] = f"{platform.system()} {platform.release()} ({platform.machine()})"
+            info["python"] = platform.python_version()
+            try:
+                d_check = await asyncio.create_subprocess_shell("docker ps --format '{{.Names}} ({{.Status}})'", stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+                d_out, _ = await asyncio.wait_for(d_check.communicate(), timeout=3)
+                if d_out:
+                    info["docker_containers"] = [c.strip() for c in d_out.decode().splitlines() if c.strip()]
+            except Exception:
+                pass
+            return json.dumps(info, indent=2, ensure_ascii=False)
+        except Exception as e:
+            return f"ERROR: sys_info failed: {type(e).__name__}: {e}"
+
+    async def _tool_get_weather(self, city: str):
+        city = str(city or "").strip()
+        if not city:
+            return "ERROR: city is required"
+        url = f"https://wttr.in/{urllib.parse.quote(city)}?format=v2&lang=ru"
+        try:
+            timeout_val = aiohttp.ClientTimeout(total=15)
+            headers = {"User-Agent": "curl/7.68.0"}
+            session, req_proxy = self._tools_aiohttp_session()
+            async with session as s:
+                async with s.get(url, headers=headers, proxy=req_proxy, timeout=timeout_val) as resp:
+                    if resp.status == 200:
+                        txt = await resp.text(errors="replace")
+                        return txt.strip()
+                    return f"ERROR: wttr.in returned HTTP {resp.status}"
+        except Exception as e:
+            return f"ERROR: weather lookup failed: {type(e).__name__}: {str(e)[:120]}"
+
+    async def _tool_dns_lookup(self, domain: str, record_type: str = "A"):
+        domain = str(domain or "").strip()
+        record_type = str(record_type or "A").strip().upper()
+        if not domain:
+            return "ERROR: domain is required"
+        try:
+            url = f"https://cloudflare-dns.com/dns-query?name={urllib.parse.quote(domain)}&type={record_type}"
+            headers = {"Accept": "application/dns-json", "User-Agent": self._tool_user_agent()}
+            session, req_proxy = self._tools_aiohttp_session()
+            async with session as s:
+                async with s.get(url, headers=headers, proxy=req_proxy, timeout=aiohttp.ClientTimeout(total=10)) as resp:
+                    if resp.status == 200:
+                        data = await resp.json()
+                        answers = data.get("Answer", [])
+                        if not answers:
+                            return f"DNS {record_type} for '{domain}': no records found."
+                        res = [f"• {a.get('name')} [{record_type}] -> {a.get('data')} (TTL: {a.get('TTL')}s)" for a in answers]
+                        return f"DNS {record_type} for '{domain}':\n" + "\n".join(res)
+                    return f"ERROR: DNS query returned HTTP {resp.status}"
+        except Exception as e:
+            return f"ERROR: dns lookup failed: {type(e).__name__}: {str(e)[:120]}"
+
+    def _tool_file_info(self, path: str):
+        p = os.path.expanduser(str(path or "").strip())
+        if not os.path.exists(p):
+            return f"ERROR: path '{p}' does not exist"
+        try:
+            st = os.stat(p)
+            is_dir = stat.S_ISDIR(st.st_mode)
+            size = st.st_size
+            mode = oct(stat.S_IMODE(st.st_mode))
+            mtime = datetime.fromtimestamp(st.st_mtime).strftime("%Y-%m-%d %H:%M:%S")
+
+            def _fmt_size(num):
+                for unit in ("B", "KB", "MB", "GB", "TB"):
+                    if abs(num) < 1024.0:
+                        return f"{num:3.1f} {unit}"
+                    num /= 1024.0
+                return f"{num:.1f} PB"
+
+            info = {
+                "path": os.path.abspath(p),
+                "type": "directory" if is_dir else "file",
+                "size_bytes": size,
+                "size_human": _fmt_size(size) if not is_dir else f"{len(os.listdir(p))} items",
+                "permissions": mode,
+                "modified": mtime,
+            }
+            if not is_dir and size <= 10 * 1024 * 1024:
+                with open(p, "rb") as f:
+                    h = hashlib.sha256()
+                    while chunk := f.read(65536):
+                        h.update(chunk)
+                    info["sha256"] = h.hexdigest()
+                try:
+                    with open(p, "r", encoding="utf-8", errors="ignore") as f:
+                        info["lines"] = sum(1 for _ in f)
+                except Exception:
+                    pass
+            return json.dumps(info, indent=2, ensure_ascii=False)
+        except Exception as e:
+            return f"ERROR: file_info failed: {type(e).__name__}: {str(e)[:120]}"
 
     async def _format_final_response(self, chat_id, base_message_id, request_text, result_text, provider, model, elapsed, tokens_in, tokens_out, history_key, call, status_msg, attempt):
         hist_len = len(self._get_structured_history(history_key)) // 2
