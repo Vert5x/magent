@@ -38,9 +38,12 @@ except ImportError:
     google_exceptions = None
 
 from PIL import Image
-from datetime import datetime
+from datetime import datetime, timedelta
 from telethon import types as tg_types
-from telethon.tl.types import Message, DocumentAttributeFilename, DocumentAttributeSticker
+from telethon.tl.types import (
+    Message, DocumentAttributeFilename, DocumentAttributeSticker,
+    Channel, Chat, User, ReactionEmoji
+)
 from telethon.utils import get_display_name, get_peer_id
 from telethon.errors.rpcerrorlist import (
     MessageTooLongError, 
@@ -1265,161 +1268,161 @@ class magent(loader.Module):
         "cfg_openai_model_doc": "Модель OpenAI (если не задана — используется model_name).",
         "cfg_deepseek_model_doc": "Модель DeepSeek (если не задана — используется model_name).",
         "no_api_key": (
-            "▲ <b>Api ключ(и) не настроен(ы).</b>\n"
-            "⌕ Получить ключи можно:\n"
-            "• Google Gemini: <a href=\"https://aistudio.google.com/app/apikey\">здесь</a>\n"
-            "• OpenRouter: <a href=\"https://openrouter.ai/settings/keys\">здесь</a>\n"
-            "• HuggingFace: <a href=\"https://huggingface.co/settings/tokens\">здесь</a>\n"
-            "• OpenAI: <a href=\"https://platform.openai.com/api-keys\">здесь</a>\n"
-            "• DeepSeek: <a href=\"https://platform.deepseek.com/api_keys\">здесь</a>\n"
-            "<b>Добавьте ключ(и) в конфиге модуля:</b> <code>.cfg magent api_key</code>"
+            "<emoji document_id=5255834944214700444>❗️</emoji> <b>Api ключ(и) не настроен(ы).</b>\n"
+            "<emoji document_id=5258094861516570110>ℹ️</emoji> Получить ключи можно:\n"
+            '• Google Gemini: <a href="https://aistudio.google.com/app/apikey">здесь</a>\n'
+            '• OpenRouter: <a href="https://openrouter.ai/settings/keys">здесь</a>\n'
+            '• HuggingFace: <a href="https://huggingface.co/settings/tokens">здесь</a>\n'
+            '• OpenAI: <a href="https://platform.openai.com/api-keys">здесь</a>\n'
+            '• DeepSeek: <a href="https://platform.deepseek.com/api_keys">здесь</a>\n'
+            '<b>Добавьте ключ(и) в конфиге модуля:</b> <code>.cfg magent api_key</code>'
         ),
-        "no_api_key_openrouter": "▲ <b>API ключ для OpenRouter не настроен.</b>\nПолучить ключ можно <a href=\"https://openrouter.ai/settings/keys\">здесь</a>.\n<b>Добавьте ключ в конфиге модуля:</b> <code>.cfg magent openrouter_api_key</code>",
-        "no_api_key_huggingface": "▲ <b>API ключ для HuggingFace не настроен.</b>\nПолучить ключ можно <a href=\"https://huggingface.co/settings/tokens\">здесь</a>.\n<b>Добавьте ключ в конфиге модуля:</b> <code>.cfg magent huggingface_api_key</code>",
-        "no_api_key_openai": "▲ <b>API ключ для OpenAI не настроен.</b>\nПолучить ключ можно <a href=\"https://platform.openai.com/api-keys\">здесь</a>.\n<b>Добавьте ключ в конфиге модуля:</b> <code>.cfg magent openai_api_key</code>",
-        "no_api_key_deepseek": "▲ <b>API ключ для DeepSeek не настроен.</b>\nПолучить ключ можно <a href=\"https://platform.deepseek.com/api_keys\">здесь</a>.\n<b>Добавьте ключ в конфиге модуля:</b> <code>.cfg magent deepseek_api_key</code>",
-        "invalid_api_key_openrouter": "▲ <b>Предоставленный API ключ OpenRouter недействителен.</b>",
-        "invalid_api_key_huggingface": "▲ <b>Предоставленный API ключ HuggingFace недействителен.</b>",
-        "invalid_api_key_openai": "▲ <b>Предоставленный API ключ OpenAI недействителен.</b>",
-        "invalid_api_key_deepseek": "▲ <b>Предоставленный API ключ DeepSeek недействителен.</b>",
-        "gmodel_list_title_openrouter": "∅ <b>Доступные модели OpenRouter:</b>",
-        "gmodel_list_title_huggingface": "∅ <b>Доступные модели HuggingFace:</b>",
-        "gmodel_list_title_openai": "∅ <b>Доступные модели OpenAI:</b>",
-        "gmodel_list_title_deepseek": "∅ <b>Доступные модели DeepSeek:</b>",
-        "invalid_api_key": "▲ <b>Предоставленный API ключ Google недействителен.</b>",
-        "all_keys_exhausted": "▲ <b>Все доступные API ключи ({}) исчерпали свою квоту.</b>\nПопробуйте позже или добавьте новые ключи в конфиге: <code>.cfg magent api_key</code>",
-        "no_prompt_or_media": "▲ <i>Нужен текст или ответ на медиа/файл.</i>",
-        "processing": "🌸 <b>Обработка...</b>",
-        "api_error": "▲ <b>Ошибка API:</b>\n<code>{}</code>",
-        "api_timeout": f"▲ <b>Таймаут ответа от API ({GEMINI_TIMEOUT} сек).</b>",
-        "blocked_error": "▲ <b>Запрос/ответ заблокирован.</b>\n<code>{}</code>",
-        "generic_error": "▲ <b>Ошибка:</b>\n<code>{}</code>",
-        "question_prefix": "» <b>Запрос:</b>",
-        "response_prefix": "✦ <b>AI:</b>",
-        "unsupported_media_type": "▲ <b>Формат медиа ({}) не поддерживается.</b>",
-        "memory_status": "⏣ [{}/{}]",
-        "memory_status_unlimited": "⏣ [{}/∞]",
-        "memory_status_global": "⏣ [◎ GLOBAL/{}]",
-        "memory_cleared": "⌫ <b>Память диалога очищена.</b>",
-        "memory_cleared_global": "⌫ <b>Глобальная память очищена.</b>",
-        "memory_cleared_gauto": "⌫ <b>Память mauto в этом чате очищена.</b>",
-        "no_memory_to_clear": "⌕ <b>В этом чате нет истории.</b>",
-        "gres_global_cleared": "⌫ <b>Вся глобальная память очищена.</b>",
-        "gres_no_global": "⌕ <b>Глобальная память и так пуста.</b>",
-        "no_gauto_memory_to_clear": "⌕ <b>В этом чате нет истории mauto.</b>",
-        "memory_chats_title": "⏣ <b>Чаты с историей ({}):</b>",
+        "no_api_key_openrouter": '<emoji document_id=5255834944214700444>❗️</emoji> <b>API ключ для OpenRouter не настроен.</b>\nПолучить ключ можно <a href="https://openrouter.ai/settings/keys">здесь</a>.\n<b>Добавьте ключ в конфиге модуля:</b> <code>.cfg magent openrouter_api_key</code>',
+        "no_api_key_huggingface": '<emoji document_id=5255834944214700444>❗️</emoji> <b>API ключ для HuggingFace не настроен.</b>\nПолучить ключ можно <a href="https://huggingface.co/settings/tokens">здесь</a>.\n<b>Добавьте ключ в конфиге модуля:</b> <code>.cfg magent huggingface_api_key</code>',
+        "no_api_key_openai": '<emoji document_id=5255834944214700444>❗️</emoji> <b>API ключ для OpenAI не настроен.</b>\nПолучить ключ можно <a href="https://platform.openai.com/api-keys">здесь</a>.\n<b>Добавьте ключ в конфиге модуля:</b> <code>.cfg magent openai_api_key</code>',
+        "no_api_key_deepseek": '<emoji document_id=5255834944214700444>❗️</emoji> <b>API ключ для DeepSeek не настроен.</b>\nПолучить ключ можно <a href="https://platform.deepseek.com/api_keys">здесь</a>.\n<b>Добавьте ключ в конфиге модуля:</b> <code>.cfg magent deepseek_api_key</code>',
+        "invalid_api_key_openrouter": '<emoji document_id=5255834944214700444>❗️</emoji> <b>Предоставленный API ключ OpenRouter недействителен.</b>',
+        "invalid_api_key_huggingface": '<emoji document_id=5255834944214700444>❗️</emoji> <b>Предоставленный API ключ HuggingFace недействителен.</b>',
+        "invalid_api_key_openai": '<emoji document_id=5255834944214700444>❗️</emoji> <b>Предоставленный API ключ OpenAI недействителен.</b>',
+        "invalid_api_key_deepseek": '<emoji document_id=5255834944214700444>❗️</emoji> <b>Предоставленный API ключ DeepSeek недействителен.</b>',
+        "gmodel_list_title_openrouter": "<emoji document_id=5256060567436693438>📋</emoji> <b>Доступные модели OpenRouter:</b>",
+        "gmodel_list_title_huggingface": "<emoji document_id=5256060567436693438>📋</emoji> <b>Доступные модели HuggingFace:</b>",
+        "gmodel_list_title_openai": "<emoji document_id=5256060567436693438>📋</emoji> <b>Доступные модели OpenAI:</b>",
+        "gmodel_list_title_deepseek": "<emoji document_id=5256060567436693438>📋</emoji> <b>Доступные модели DeepSeek:</b>",
+        "invalid_api_key": '<emoji document_id=5255834944214700444>❗️</emoji> <b>Предоставленный API ключ Google недействителен.</b>',
+        "all_keys_exhausted": "<emoji document_id=5255834944214700444>❗️</emoji> <b>Все доступные API ключи ({}) исчерпали свою квоту.</b>\nПопробуйте позже или добавьте новые ключи в конфиге: <code>.cfg magent api_key</code>",
+        "no_prompt_or_media": "<emoji document_id=5255816510215062547>⚠️</emoji> <i>Нужен текст или ответ на медиа/файл.</i>",
+        "processing": "<emoji document_id=5258464610956115173>⌛️</emoji> <b>Обработка...</b>",
+        "api_error": "<emoji document_id=5255834944214700444>❗️</emoji> <b>Ошибка API:</b>\n<code>{}</code>",
+        "api_timeout": f"<emoji document_id=5255834944214700444>❗️</emoji> <b>Таймаут ответа от API ({GEMINI_TIMEOUT} сек).</b>",
+        "blocked_error": "<emoji document_id=5255834944214700444>🚫</emoji> <b>Запрос/ответ заблокирован.</b>\n<code>{}</code>",
+        "generic_error": "<emoji document_id=5255834944214700444>❗️</emoji> <b>Ошибка:</b>\n<code>{}</code>",
+        "question_prefix": "<emoji document_id=5280882957261770698>💬</emoji> <b>Запрос:</b>",
+        "response_prefix": "<emoji document_id=5283176512747507510>✨</emoji> <b>AI:</b>",
+        "unsupported_media_type": "<emoji document_id=5255816510215062547>⚠️</emoji> <b>Формат медиа ({}) не поддерживается.</b>",
+        "memory_status": "<emoji document_id=5256212342991001393>🧠</emoji> [{}/{}]",
+        "memory_status_unlimited": "<emoji document_id=5256212342991001393>🧠</emoji> [{}/∞]",
+        "memory_status_global": "<emoji document_id=5256212342991001393>🧠</emoji> [<emoji document_id=5255801194361688216>🌍</emoji> GLOBAL/{}]",
+        "memory_cleared": "<emoji document_id=5280499068789887600>🧹</emoji> <b>Память диалога очищена.</b>",
+        "memory_cleared_global": "<emoji document_id=5280499068789887600>🧹</emoji> <b>Глобальная память очищена.</b>",
+        "memory_cleared_gauto": "<emoji document_id=5280499068789887600>🧹</emoji> <b>Память mauto в этом чате очищена.</b>",
+        "no_memory_to_clear": "<emoji document_id=5258094861516570110>ℹ️</emoji> <b>В этом чате нет истории.</b>",
+        "gres_global_cleared": "<emoji document_id=5280499068789887600>🧹</emoji> <b>Вся глобальная память очищена.</b>",
+        "gres_no_global": "<emoji document_id=5258094861516570110>ℹ️</emoji> <b>Глобальная память и так пуста.</b>",
+        "no_gauto_memory_to_clear": "<emoji document_id=5258094861516570110>ℹ️</emoji> <b>В этом чате нет истории mauto.</b>",
+        "memory_chats_title": "<emoji document_id=5256212342991001393>🧠</emoji> <b>Чаты с историей ({}):</b>",
         "memory_chat_line": "  • {} (<code>{}</code>)",
-        "no_memory_found": "⌕ Память AI пуста.",
+        "no_memory_found": "<emoji document_id=5258094861516570110>ℹ️</emoji> Память AI пуста.",
         "media_reply_placeholder": "[ответ на медиа]",
-        "btn_clear": "⌫ Очистить",
-        "btn_regenerate": "↺ Другой ответ",
+        "btn_clear": "🧹 Очистить",
+        "btn_regenerate": "🔄 Другой ответ",
         "no_last_request": "Последний запрос не найден для повторной генерации.",
-        "memory_fully_cleared": "⌫ <b>Вся память полностью очищена (затронуто {} чатов).</b>",
-        "gauto_memory_fully_cleared": "⌫ <b>Вся память mauto полностью очищена (затронуто {} чатов).</b>",
-        "no_memory_to_fully_clear": "⌕ <b>Память и так пуста.</b>",
-        "no_gauto_memory_to_fully_clear": "⌕ <b>Память mauto и так пуста.</b>",
+        "memory_fully_cleared": "<emoji document_id=5280499068789887600>🧹</emoji> <b>Вся память полностью очищена (затронуто {} чатов).</b>",
+        "gauto_memory_fully_cleared": "<emoji document_id=5280499068789887600>🧹</emoji> <b>Вся память mauto полностью очищена (затронуто {} чатов).</b>",
+        "no_memory_to_fully_clear": "<emoji document_id=5258094861516570110>ℹ️</emoji> <b>Память и так пуста.</b>",
+        "no_gauto_memory_to_fully_clear": "<emoji document_id=5258094861516570110>ℹ️</emoji> <b>Память mauto и так пуста.</b>",
         "response_too_long": "Ответ AI был слишком длинным и отправлен в виде файла.",
-        "gclear_usage": "⌕ <b>Использование:</b> <code>.mclear [global/auto]</code>",
-        "gres_usage": "⌕ <b>Использование:</b> <code>.mres [global/auto]</code>",
-        "auto_mode_on": "⍟ <b>Режим авто-ответа включен в этом чате.</b>\nЯ буду отвечать на сообщения с вероятностью {}%.",
-        "auto_mode_off": "⍟ <b>Режим авто-ответа выключен в этом чате.</b>",
-        "auto_mode_chats_title": "⍟ <b>Чаты с активным авто-ответом ({}):</b>",
-        "no_auto_mode_chats": "⌕ Нет чатов с включенным режимом авто-ответа.",
-        "auto_mode_usage": "⌕ <b>Использование:</b> <code>.mauto on/off или [id/username] [on/off]</code>",
-        "gauto_chat_not_found": "▲ <b>Не удалось найти чат:</b> <code>{}</code>",
-        "gauto_state_updated": "⍟ <b>Режим авто-ответа для чата {} {}</b>",
+        "gclear_usage": "<emoji document_id=5258094861516570110>ℹ️</emoji> <b>Использование:</b> <code>.mclear [global/auto]</code>",
+        "gres_usage": "<emoji document_id=5258094861516570110>ℹ️</emoji> <b>Использование:</b> <code>.mres [global/auto]</code>",
+        "auto_mode_on": "<emoji document_id=5258094359005395573>🎭</emoji> <b>Режим авто-ответа включен в этом чате.</b>\nЯ буду отвечать на сообщения с вероятностью {}%.",
+        "auto_mode_off": "<emoji document_id=5258094359005395573>🎭</emoji> <b>Режим авто-ответа выключен в этом чате.</b>",
+        "auto_mode_chats_title": "<emoji document_id=5258094359005395573>🎭</emoji> <b>Чаты с активным авто-ответом ({}):</b>",
+        "no_auto_mode_chats": "<emoji document_id=5258094861516570110>ℹ️</emoji> Нет чатов с включенным режимом авто-ответа.",
+        "auto_mode_usage": "<emoji document_id=5258094861516570110>ℹ️</emoji> <b>Использование:</b> <code>.mauto on/off или [id/username] [on/off]</code>",
+        "gauto_chat_not_found": "<emoji document_id=5255834944214700444>🚫</emoji> <b>Не удалось найти чат:</b> <code>{}</code>",
+        "gauto_state_updated": "<emoji document_id=5258094359005395573>🎭</emoji> <b>Режим авто-ответа для чата {} {}</b>",
         "gauto_enabled": "включен",
         "gauto_disabled": "выключен",
-        "gch_usage": "⌕ <b>Использование:</b>\n<code>.mch <кол-во> <вопрос></code>\n<code>.mch <id чата> <кол-во> <вопрос></code>",
-        "gch_processing": "🌸 <b>Анализирую {} сообщений...</b>",
+        "gch_usage": "<emoji document_id=5258094861516570110>ℹ️</emoji> <b>Использование:</b>\n<code>.mch &lt;кол-во&gt; &lt;вопрос&gt;</code>\n<code>.mch &lt;id чата&gt; &lt;кол-во&gt; &lt;вопрос&gt;</code>",
+        "gch_processing": "<emoji document_id=5258464610956115173>⌛️</emoji> <b>Анализирую {} сообщений...</b>",
         "gch_result_caption": "Анализ последних {} сообщений",
         "gch_result_caption_from_chat": "Анализ последних {} сообщений из чата <b>{}</b>",
-        "gch_invalid_args": "▲ <b>Неверные аргументы.</b>\n{}",
-        "gch_chat_error": "▲ <b>Ошибка доступа к чату</b> <code>{}</code>: <i>{}</i>",
-        "gask_no_prompt": "▲ <b>Введите вопрос или ответьте командой на сообщение.</b>",
+        "gch_invalid_args": "<emoji document_id=5255834944214700444>❗️</emoji> <b>Неверные аргументы.</b>\n{}",
+        "gch_chat_error": "<emoji document_id=5255834944214700444>❗️</emoji> <b>Ошибка доступа к чату</b> <code>{}</code>: <i>{}</i>",
+        "gask_no_prompt": "<emoji document_id=5255816510215062547>⚠️</emoji> <b>Введите вопрос или ответьте командой на сообщение.</b>",
         "gprovider_usage": (
-            "⌕ <b>Использование:</b> <code>.mprovider [провайдер]</code>\n"
+            "<emoji document_id=5258094861516570110>ℹ️</emoji> <b>Использование:</b> <code>.mprovider [провайдер]</code>\n"
             "• <code>.mprovider</code> — интерактивное меню\n"
             "• <code>.mprovider add &lt;имя&gt; &lt;url&gt; [ключ] [модель]</code> — добавить кастомный\n"
             "• <code>.mprovider del &lt;имя&gt;</code> — удалить кастомный\n"
             "• <code>.mprovider list</code> — список всех провайдеров"
         ),
         "gprovider_current": (
-            "⌘ <b>Текущий провайдер:</b> <code>{}</code>\n"
-            "⌬ <b>Модель:</b> <code>{}</code>\n\n"
+            "<emoji document_id=5255868749902283539>🧩</emoji> <b>Текущий провайдер:</b> <code>{}</code>\n"
+            "<emoji document_id=5256212342991001393>🧠</emoji> <b>Модель:</b> <code>{}</code>\n\n"
             "<b>Все модели:</b>\n"
-            "✦ Gemini: <code>{}</code>\n"
-            "✦ OpenRouter: <code>{}</code>\n"
-            "✦ HuggingFace: <code>{}</code>\n"
-            "✦ OpenAI: <code>{}</code>\n"
-            "✦ DeepSeek: <code>{}</code>\n\n"
+            "<emoji document_id=5285219675934854622>🤖</emoji> Gemini: <code>{}</code>\n"
+            "<emoji document_id=5280529365489193783>🔗</emoji> OpenRouter: <code>{}</code>\n"
+            "🤗 HuggingFace: <code>{}</code>\n"
+            "<emoji document_id=5278763360836422506>💻</emoji> OpenAI: <code>{}</code>\n"
+            "🦖 DeepSeek: <code>{}</code>\n\n"
             "<code>.mmodel</code> — сменить модель\n"
             "<code>.mprovider</code> — сменить провайдера"
         ),
-        "gprovider_set": "✓ <b>Провайдер:</b> <code>{}</code>\n⌬ <b>Модель:</b> <code>{}</code>",
-        "gprofile_usage": "⌕ <b>Использование:</b> <code>.mprofile [auto|balanced|fast|reasoning|coding|vision|manual]</code>",
-        "gprofile_set": "✓ <b>Профиль модели:</b> <code>{}</code>\n⌬ <b>Для текущего провайдера:</b> <code>{}</code>",
-        "gmodel_usage": "⌕ <b>Использование:</b> <code>.mmodel [модель] [--s|-s]</code>\n• [модель] — установить модель.\n• --s/-s — показать список доступных моделей (или <code>.mmodels</code>).",
-        "gmodels_usage": "⌕ <b>Использование:</b> <code>.mmodels [провайдер] [поиск]</code>\n• Интерактивное инлайн-меню моделей провайдера из API (curl) с выбором по кнопке.",
-        "gmodel_list_title": "∅ <b>Доступные модели Gemini (по вашему API):</b>",
+        "gprovider_set": "<emoji document_id=5255836438863319289>✅</emoji> <b>Провайдер:</b> <code>{}</code>\n<emoji document_id=5256212342991001393>🧠</emoji> <b>Модель:</b> <code>{}</code>",
+        "gprofile_usage": "<emoji document_id=5258094861516570110>ℹ️</emoji> <b>Использование:</b> <code>.mprofile [auto|balanced|fast|reasoning|coding|vision|manual]</code>",
+        "gprofile_set": "<emoji document_id=5255836438863319289>✅</emoji> <b>Профиль модели:</b> <code>{}</code>\n<emoji document_id=5256212342991001393>🧠</emoji> <b>Для текущего провайдера:</b> <code>{}</code>",
+        "gmodel_usage": "<emoji document_id=5258094861516570110>ℹ️</emoji> <b>Использование:</b> <code>.mmodel [модель] [--s|-s]</code>\n• [модель] — установить модель.\n• --s/-s — показать список доступных моделей (или <code>.mmodels</code>).",
+        "gmodels_usage": "<emoji document_id=5258094861516570110>ℹ️</emoji> <b>Использование:</b> <code>.mmodels [провайдер] [поиск]</code>\n• Интерактивное инлайн-меню моделей провайдера из API (curl) с выбором по кнопке.",
+        "gmodel_list_title": "<emoji document_id=5256060567436693438>📋</emoji> <b>Доступные модели Gemini (по вашему API):</b>",
         "gmodel_list_item": "• <code>{}</code> — {} (поддержка: {})",
         "gmodel_img_support": "Поддержка изображений",
         "gmodel_no_support": "Нет поддержки изображений",
-        "gmodel_img_warn": "▲ <b>Текущая модель ({}) не может генерировать изображения(или не доступна по API).</b>\nРекомендуем: <code>gemini-2.5-flash-image</code>",
-        "gme_chat_not_found": "▲ <b>Не удалось найти чат для экспорта:</b> <code>{}</code>",
-        "gme_sent_to_saved": "⎙ История экспортирована в избранное.",
-        "new_sdk_missing": "▲ <b>Для работы модуля нужна библиотека google-genai.</b>\nВыполните: <code>pip install google-genai</code>",
-        "gprompt_usage": "⌕ <b>Использование:</b>\n<code>.mprompt <текст/пресет></code> — установить.\n<code>.mprompt -c</code> — очистить.\n<code>.mpresets</code> — база пресетов.",
-        "gprompt_updated": "✓ <b>Системный промпт обновлен!</b>\nДлина: {} символов.",
-        "gprompt_cleared": "⌫ <b>Системный промпт очищен.</b>",
-        "gprompt_current": "» <b>Текущий системный промпт:</b>",
-        "gprompt_file_error": "▲ <b>Ошибка чтения файла:</b> {}",
-        "gprompt_file_too_big": "▲ <b>Файл слишком большой</b> (лимит 1 МБ).",
-        "gprompt_not_text": "▲ Это не похоже на текстовый файл.(txt)",
-        "gmodel_no_models": "▲ Не удалось получить список моделей.",
-        "gmodel_list_error": "▲ Ошибка получения списка: {}",
-        "gimg_process": "✦ <b>Генерация...</b>\n⌬ <i>Модель: {model}</i>",
+        "gmodel_img_warn": "<emoji document_id=5255816510215062547>⚠️</emoji> <b>Текущая модель ({}) не может генерировать изображения(или не доступна по API).</b>\nРекомендуем: <code>gemini-2.5-flash-image</code>",
+        "gme_chat_not_found": "<emoji document_id=5255834944214700444>🚫</emoji> <b>Не удалось найти чат для экспорта:</b> <code>{}</code>",
+        "gme_sent_to_saved": "<emoji document_id=5255872215940893698>💾</emoji> История экспортирована в избранное.",
+        "new_sdk_missing": "<emoji document_id=5255816510215062547>⚠️</emoji> <b>Для работы модуля нужна библиотека google-genai.</b>\nВыполните: <code>pip install google-genai</code>",
+        "gprompt_usage": "<emoji document_id=5258094861516570110>ℹ️</emoji> <b>Использование:</b>\n<code>.mprompt &lt;текст/пресет&gt;</code> — установить.\n<code>.mprompt -c</code> — очистить.\n<code>.mpresets</code> — база пресетов.",
+        "gprompt_updated": "<emoji document_id=5255836438863319289>✅</emoji> <b>Системный промпт обновлен!</b>\nДлина: {} символов.",
+        "gprompt_cleared": "<emoji document_id=5280499068789887600>🗑</emoji> <b>Системный промпт очищен.</b>",
+        "gprompt_current": "<emoji document_id=5255855332424453335>📝</emoji> <b>Текущий системный промпт:</b>",
+        "gprompt_file_error": "<emoji document_id=5255834944214700444>❗️</emoji> <b>Ошибка чтения файла:</b> {}",
+        "gprompt_file_too_big": "<emoji document_id=5255834944214700444>❗️</emoji> <b>Файл слишком большой</b> (лимит 1 МБ).",
+        "gprompt_not_text": "<emoji document_id=5255834944214700444>❗️</emoji> Это не похоже на текстовый файл.(txt)",
+        "gmodel_no_models": "<emoji document_id=5255816510215062547>⚠️</emoji> Не удалось получить список моделей.",
+        "gmodel_list_error": "<emoji document_id=5255834944214700444>❗️</emoji> Ошибка получения списка: {}",
+        "gimg_process": "<emoji document_id=5283176512747507510>✨</emoji> <b>Генерация...</b>\n<emoji document_id=5256212342991001393>🧠</emoji> <i>Модель: {model}</i>",
         "gpresets_usage": (
-            "⌕ <b>Управление пресетами:</b>\n"
+            "<emoji document_id=5258094861516570110>ℹ️</emoji> <b>Управление пресетами:</b>\n"
             "• <code>.mpresets save [Имя] текст</code> — сохранить (имя в скобках, если с пробелами).\n"
             "• <code>.mpresets load 1</code> или <code>имя</code> — загрузить по номеру/имени.\n"
             "• <code>.mpresets del 1</code> или <code>имя</code> — удалить.\n"
             "• <code>.mpresets list</code> — список."
         ),
-        "gpreset_loaded": "✓ <b>Установлен пресет:</b> [<code>{}</code>]\nДлина: {} симв.", 
-        "gpreset_saved": "⎙ <b>Пресет сохранен!</b>\n∅ <b>Имя:</b> {}\n№ <b>Индекс:</b> {}",
-        "gpreset_deleted": "⌫ <b>Пресет удален:</b> {}",
-        "gpreset_not_found": "▲ Пресет с таким именем или индексом не найден.",
-        "gpreset_list_head": "∅ <b>Ваши пресеты:</b>\n",
-        "gpreset_empty": "⌕ Список пресетов пуст.",
+        "gpreset_loaded": "<emoji document_id=5255836438863319289>✅</emoji> <b>Установлен пресет:</b> [<code>{}</code>]\nДлина: {} симв.", 
+        "gpreset_saved": "<emoji document_id=5255872215940893698>💾</emoji> <b>Пресет сохранен!</b>\n<emoji document_id=5255889567608768132>🏷</emoji> <b>Имя:</b> {}\n№ <b>Индекс:</b> {}",
+        "gpreset_deleted": "<emoji document_id=5280499068789887600>🗑</emoji> <b>Пресет удален:</b> {}",
+        "gpreset_not_found": "<emoji document_id=5255834944214700444>🚫</emoji> Пресет с таким именем или индексом не найден.",
+        "gpreset_list_head": "<emoji document_id=5256060567436693438>📋</emoji> <b>Ваши пресеты:</b>\n",
+        "gpreset_empty": "<emoji document_id=5278717357441715177>📂</emoji> Список пресетов пуст.",
         "tools_status": (
-            "⎈ <b>Инструменты-агент:</b> {}\n"
-            "⬡ <b>Доступно:</b> <code>run_terminal</code>, <code>read_file</code>, <code>write_file</code>, <code>list_dir</code>, <code>tg_send</code>, <code>tg_history</code>, <code>web_search</code>, <code>fetch_url</code>\n"
-            "◈ <b>Шаги/таймаут:</b> {} / {}с · <b>Провайдер:</b> <code>{}</code>\n\n"
-            "▲ <i>Доступ к шеллу хоста. Только при ваших вызовах <code>.m</code>/<code>.mt</code>; в mauto отключено. Работают у всех провайдеров с поддержкой tool-calling (Gemini, OpenAI, OpenRouter, Groq, Mistral, DeepSeek, xAI, Together и т.д.).</i>\n"
+            "<emoji document_id=5287543644084011559>🛠</emoji> <b>Инструменты-агент:</b> {}\n"
+            "<emoji document_id=5283187323180190072>🧬</emoji> <b>Доступно:</b> <code>run_terminal</code>, <code>read_file</code>, <code>write_file</code>, <code>list_dir</code>, <code>tg_send</code>, <code>tg_history</code>, <code>tg_action</code>, <code>web_search</code>, <code>fetch_url</code>\n"
+            "<emoji document_id=5332753204281121154>⚛️</emoji> <b>Шаги/таймаут:</b> {} / {}с · <b>Провайдер:</b> <code>{}</code>\n\n"
+            "<emoji document_id=5255816510215062547>⚠️</emoji> <i>Доступ к шеллу хоста и Telegram аккаунту. Только при ваших вызовах <code>.m</code>/<code>.mt</code>; в mauto отключено. Работают у всех провайдеров с поддержкой tool-calling (Gemini, OpenAI, OpenRouter, Groq, Mistral, DeepSeek, xAI, Together и т.д.).</i>\n"
             "<code>.mtools on/off</code> — переключить."
         ),
-        "tools_on": "✓ <b>Инструменты включены.</b>",
-        "tools_off": "✗ <b>Инструменты выключены.</b>",
-        "tools_need_gemini": "▲ <b>Инструменты работают только с провайдером <code>gemini</code>.</b> Сейчас: <code>{}</code>.\nПереключи: <code>.mprovider gemini</code>",
-        "tools_running": "⎈ <i>{}</i>",
+        "tools_on": "<emoji document_id=5255836438863319289>✅</emoji> <b>Инструменты включены.</b>",
+        "tools_off": "<emoji document_id=5256216509109272955>❌</emoji> <b>Инструменты выключены.</b>",
+        "tools_need_gemini": "<emoji document_id=5255816510215062547>⚠️</emoji> <b>Инструменты работают только с провайдером <code>gemini</code>.</b> Сейчас: <code>{}</code>.\nПереключи: <code>.mprovider gemini</code>",
+        "tools_running": "<emoji document_id=5283187323180190072>🧬</emoji> <i>{}</i>",
         "tools_progress_head": (
-            "◴ <b>Обработка...</b> <i>· шаг {}</i>\n"
-            "⎈ <b>Выполнение команд:</b>"
+            "<emoji document_id=5258464610956115173>⌛️</emoji> <b>Обработка...</b> <i>· шаг {}</i>\n"
+            "<emoji document_id=5287543644084011559>🛠</emoji> <b>Выполнение команд:</b>"
         ),
         "gstat": (
-            "∷ <b>Статистика magent-агента</b>\n"
-            "◴ <b>Аптайм сессии:</b> {uptime}\n\n"
-            "⌘ <b>Провайдер:</b> <code>{provider}</code> · профиль <code>{profile}</code>\n"
-            "⌬ <b>Модель:</b> <code>{model}</code>\n"
-            "⚿ <b>Ключи Gemini:</b> {g_keys} (в кулдауне: {cooldowns})\n"
-            "⬡ <b>Настроены:</b> {configured}\n\n"
-            "∷ <b>Запросов:</b> {requests} · <b>ср/посл:</b> {avg_t}с / {last_t}с\n"
-            "◈ <b>Токены:</b> {t_total} (in {t_in} / out {t_out})\n\n"
-            "⏣ <b>Память:</b> {chats} чат(ов), {pairs} пар · режим {mem_mode}\n"
-            "⍟ <b>Mauto:</b> {gauto_chats} истор. · активно {imp_chats} · память off в {mem_off}\n"
-            "∅ <b>Пресетов:</b> {presets}\n"
-            "⎈ <b>Инструменты-агент:</b> {tools_state}"
+            "<emoji document_id=5280476193794064671>📊</emoji> <b>Статистика magent-агента</b>\n"
+            "<emoji document_id=5280952793430002348>⏱️</emoji> <b>Аптайм сессии:</b> {uptime}\n\n"
+            "<emoji document_id=5332753204281121154>⚛️</emoji> <b>Провайдер:</b> <code>{provider}</code> · профиль <code>{profile}</code>\n"
+            "<emoji document_id=5285315964806662795>🧠</emoji> <b>Модель:</b> <code>{model}</code>\n"
+            "<emoji document_id=5256116200148075808>🔑</emoji> <b>Ключи Gemini:</b> {g_keys} (в кулдауне: {cooldowns})\n"
+            "<emoji document_id=5332482733010622094>🌐</emoji> <b>Настроены:</b> {configured}\n\n"
+            "<emoji document_id=5280530185827944234>📈</emoji> <b>Запросов:</b> {requests} · <b>ср/посл:</b> {avg_t}с / {last_t}с\n"
+            "<emoji document_id=5256164952321857497>🪙</emoji> <b>Токены:</b> {t_total} (in {t_in} / out {t_out})\n\n"
+            "<emoji document_id=5256212342991001393>🧠</emoji> <b>Память:</b> {chats} чат(ов), {pairs} пар · режим {mem_mode}\n"
+            "<emoji document_id=5258094359005395573>🎭</emoji> <b>Mauto:</b> {gauto_chats} истор. · активно {imp_chats} · память off в {mem_off}\n"
+            "<emoji document_id=5255889567608768132>🏷</emoji> <b>Пресетов:</b> {presets}\n"
+            "<emoji document_id=5287543644084011559>🛠</emoji> <b>Инструменты-агент:</b> {tools_state}"
         ),
     }
     TEXT_MIME_TYPES = {
@@ -1766,7 +1769,7 @@ class magent(loader.Module):
             loader.ConfigValue("tools_confirm", False, "Спрашивать подтверждение перед каждой командой терминала (выводит в лог).", validator=loader.validators.Boolean()),
             loader.ConfigValue("premium_emoji_refresh", True, "Доп. перерисовка финального ответа, чтобы подхватились премиум-эмодзи (нужен Telegram Premium у аккаунта).", validator=loader.validators.Boolean()),
             loader.ConfigValue("rich_mode", True, "Включить Telegram Rich Mode (нативные детали <details>, thinking-блоки модели, таблицы и расширенная разметка).", validator=loader.validators.Boolean()),
-            loader.ConfigValue("clean_symbols_mode", True, "Режим без эмодзи: заменять все эмодзи (в т.ч. премиум) на строгие текстовые Unicode-символы.", validator=loader.validators.Boolean()),
+            loader.ConfigValue("clean_symbols_mode", False, "Режим без эмодзи: заменять все эмодзи (в т.ч. премиум) на строгие текстовые Unicode-символы (по умолчанию False — премиум эмодзи включены).", validator=loader.validators.Boolean()),
             loader.ConfigValue("show_tool_calls_in_response", True, "Показывать результаты инструментов и ход работы в итоговом ответе AI.", validator=loader.validators.Boolean()),
             # --- KeyTest (валидатор ключей: .keytest / .kprov / .kproxytest) ---
             loader.ConfigValue("kt_timeout", 20, "KeyTest: таймаут запроса проверки ключа, сек.", validator=loader.validators.Integer(minimum=5, maximum=120)),
@@ -1856,6 +1859,10 @@ class magent(loader.Module):
             else:
                 saved_keys[k] = val
         self.db.set(self.strings["name"], DB_SAVED_KEYS_KEY, saved_keys)
+
+        # По умолчанию режим чистых символов выключен (премиум эмодзи активны)
+        if not self.db.get(self.strings["name"], "explicit_clean_symbols", False):
+            self.config["clean_symbols_mode"] = False
 
         # --- 2. Реестр и хранилище кастомных провайдеров ---
         loaded_custom = _get_db(DB_CUSTOM_PROVIDERS_KEY, None)
@@ -3098,8 +3105,26 @@ class magent(loader.Module):
                description="Загрузить файл на публичный хостинг (x0.at, 0x0.st, catbox.moe) и получить прямую ссылку для скачивания. Можно указать path к файлу на диске ИЛИ content + filename.",
                parameters={"type": "OBJECT", "properties": {"path": s("Путь к файлу на диске"), "content": s("Текст/код для загрузки файлом"), "filename": s("Имя файла (например test.py)"), "service": s("Сервис: 'x0', '0x0' или 'catbox' (по умолчанию 'x0')")}, "required": []}),
             FD(name="tg_action",
-               description="Системные действия в Telegram: pin_message, unpin_message, delete_messages, get_chat_info, get_user_info, search_messages, get_dialogs, mark_chat_read.",
-               parameters={"type": "OBJECT", "properties": {"action": s("Действие: pin_message/unpin_message/delete_messages/get_chat_info/get_user_info/search_messages/get_dialogs/mark_chat_read"), "target": s("Чат или пользователь (id, @username или me)"), "message_ids": {"type": "ARRAY", "items": {"type": "INTEGER"}, "description": "ID сообщений для действия"}, "limit": i("Лимит (1-50)"), "query": s("Поисковый запрос для search_messages")}, "required": ["action"]}),
+               description="Системные действия и полное управление аккаунтом/чатами в Telegram: block_user, unblock_user, get_blocked_users, get_contacts, add_contact, delete_contact, get_user_info, get_self_profile, set_profile_name, set_profile_bio, set_profile_username, get_chat_info, get_chat_admins, get_participants, kick_user, ban_user, unban_user, mute_user, unmute_user, promote_user, demote_user, set_chat_title, set_chat_about, join_chat, leave_chat, pin_message, unpin_message, delete_messages, send_message, edit_message, forward_message, react_message, search_messages, get_message_by_id, mark_chat_read, clear_chat_history, get_dialogs, get_unread_overview, archive_chat, unarchive_chat.",
+               parameters={"type": "OBJECT", "properties": {
+                   "action": s("Действие: block_user/unblock_user/get_blocked_users/get_contacts/add_contact/delete_contact/get_user_info/get_self_profile/set_profile_name/set_profile_bio/set_profile_username/get_chat_info/get_chat_admins/get_participants/kick_user/ban_user/unban_user/mute_user/unmute_user/promote_user/demote_user/set_chat_title/set_chat_about/join_chat/leave_chat/pin_message/unpin_message/delete_messages/send_message/edit_message/forward_message/react_message/search_messages/get_message_by_id/mark_chat_read/clear_chat_history/get_dialogs/get_unread_overview/archive_chat/unarchive_chat"),
+                   "target": s("Чат или пользователь (id, @username или 'me')"),
+                   "user": s("Целевой пользователь для модерации или контактов (id, @username)"),
+                   "text": s("Текст сообщения, описания, био, названия или поисковый запрос"),
+                   "message_id": i("ID конкретного сообщения"),
+                   "message_ids": {"type": "ARRAY", "items": {"type": "INTEGER"}, "description": "Список ID сообщений"},
+                   "limit": i("Лимит количества элементов (по умолчанию 20)"),
+                   "query": s("Поисковый запрос для search_messages"),
+                   "emoji": s("Эмодзи для реакции react_message (напр. 👍, 🔥, ❤️, 🤡, 👏)"),
+                   "seconds": i("Длительность мута/ограничения в секундах (по умолчанию 3600)"),
+                   "first_name": s("Имя для профиля или контакта"),
+                   "last_name": s("Фамилия для профиля или контакта"),
+                   "phone": s("Номер телефона для добавления контакта"),
+                   "about": s("Описание (биография) для профиля или чата"),
+                   "username": s("Юзернейм для профиля (без @)"),
+                   "reply_to": i("ID сообщения для ответа"),
+                   "to_chat": s("Чат назначения при пересылке forward_message"),
+               }, "required": ["action"]}),
             FD(name="save_skill",
                description="Сохранить постоянный навык/факт в долговременную память (навык запоминается навсегда и применяется во всех будущих ответах).",
                parameters={"type": "OBJECT", "properties": {"name": s("Короткое имя навыка, латиницей, без пробелов"), "content": s("Текст навыка — что запомнить или как себя вести")}, "required": ["name", "content"]}),
@@ -3173,7 +3198,25 @@ class magent(loader.Module):
             f("replace_in_file", "Точечная замена фрагмента текста в файле на новый без перезаписи всего файла.", {"path": s("Путь к файлу"), "old_text": s("Точный текст для замены"), "new_text": s("Новый текст")}, ["path", "old_text", "new_text"]),
             f("read_chat_file", "Прочитать или скачать файл/документ/медиа из сообщения Telegram.", {"chat": s("ID чата (по умолчанию текущий)"), "message_id": i("ID сообщения (по умолчанию отвеченное)")}, []),
             f("upload_file", "Загрузить файл на публичный хостинг (x0.at, 0x0.st, catbox) и получить прямую ссылку. Передайте path ИЛИ content + filename.", {"path": s("Путь к файлу"), "content": s("Текст/код файла"), "filename": s("Имя файла"), "service": s("Хостинг ('x0', '0x0', 'catbox')")}, []),
-            f("tg_action", "Системные действия в Telegram (pin_message, unpin_message, delete_messages, get_chat_info, get_user_info, search_messages, get_dialogs, mark_chat_read).", {"action": s("Действие"), "target": s("Чат/юзер (id, @username, me)"), "message_ids": {"type": "array", "items": {"type": "integer"}, "description": "ID сообщений"}, "limit": i("Лимит"), "query": s("Текст поиска")}, ["action"]),
+            f("tg_action", "Системные действия и управление аккаунтом/чатами в Telegram (block_user, unblock_user, get_blocked_users, get_contacts, add_contact, delete_contact, get_user_info, get_self_profile, set_profile_name, set_profile_bio, set_profile_username, get_chat_info, get_chat_admins, get_participants, kick_user, ban_user, unban_user, mute_user, unmute_user, promote_user, demote_user, set_chat_title, set_chat_about, join_chat, leave_chat, pin_message, unpin_message, delete_messages, send_message, edit_message, forward_message, react_message, search_messages, get_message_by_id, mark_chat_read, clear_chat_history, get_dialogs, get_unread_overview, archive_chat, unarchive_chat).", {
+                "action": s("Действие"),
+                "target": s("Чат/юзер (id, @username, me)"),
+                "user": s("Пользователь (id, @username)"),
+                "text": s("Текст сообщения/био/названия"),
+                "message_id": i("ID сообщения"),
+                "message_ids": {"type": "array", "items": {"type": "integer"}, "description": "ID сообщений"},
+                "limit": i("Лимит"),
+                "query": s("Текст поиска"),
+                "emoji": s("Эмодзи реакции"),
+                "seconds": i("Секунды мута"),
+                "first_name": s("Имя"),
+                "last_name": s("Фамилия"),
+                "phone": s("Телефон"),
+                "about": s("Био/описание"),
+                "username": s("Юзернейм"),
+                "reply_to": i("ID ответа"),
+                "to_chat": s("Чат назначения"),
+            }, ["action"]),
             f("list_dir", "Показать содержимое директории на хосте.", {"path": s("Путь (по умолчанию текущая)")}, []),
             f("tg_send", "Отправить сообщение в Telegram-чат от имени владельца. chat: id, @username или 'me'.", {"chat": s("id, @username или me"), "text": s("Текст")}, ["chat", "text"]),
             f("tg_history", "Получить последние сообщения из Telegram-чата. chat: id, @username или 'me'.", {"chat": s("id, @username или me"), "limit": i("1-50")}, ["chat"]),
@@ -3184,8 +3227,15 @@ class magent(loader.Module):
 
     _KNOWN_TOOLS = (
         "run_terminal", "read_file", "write_file", "search_in_file", "find_files",
-        "send_file", "replace_in_file", "read_chat_file", "upload_file", "tg_action", "list_dir",
-        "tg_send", "tg_history", "web_search", "fetch_url", "save_skill"
+        "send_file", "replace_in_file", "read_chat_file", "upload_file", "tg_action", "tg_act", "list_dir",
+        "tg_send", "tg_history", "web_search", "fetch_url", "save_skill",
+        "block_user", "unblock_user", "get_blocked_users", "get_contacts", "add_contact", "delete_contact",
+        "get_user_info", "get_self_profile", "set_profile_name", "set_profile_bio", "set_profile_username",
+        "get_chat_info", "get_chat_admins", "get_participants", "kick_user", "ban_user", "unban_user",
+        "mute_user", "unmute_user", "promote_user", "demote_user", "set_chat_title", "set_chat_about",
+        "join_chat", "leave_chat", "pin_message", "unpin_message", "delete_messages", "send_message",
+        "edit_message", "forward_message", "react_message", "search_messages", "get_message_by_id",
+        "mark_chat_read", "clear_chat_history", "archive_chat", "unarchive_chat", "get_dialogs", "get_unread_overview"
     )
 
     def _normalize_tool_call(self, tc):
@@ -3441,10 +3491,22 @@ class magent(loader.Module):
             ch = str(args.get("chat", "")).strip()
             res_disp = f"tg_history: {ch}"
             prog_disp = f"tg_history {ch}"
-        elif name == "tg_action":
-            act = str(args.get("action", "")).strip()
+        elif name in ("tg_action", "tg_act"):
+            act = str(args.get("action", "")).strip() or name
             res_disp = f"tg_act: {act}"
             prog_disp = f"tg_act {act}"
+        elif name in (
+            "block_user", "unblock_user", "get_blocked_users", "get_contacts", "add_contact",
+            "delete_contact", "get_user_info", "get_self_profile", "set_profile_name",
+            "set_profile_bio", "set_profile_username", "get_chat_info", "get_chat_admins",
+            "get_participants", "kick_user", "ban_user", "unban_user", "mute_user",
+            "unmute_user", "promote_user", "demote_user", "set_chat_title", "set_chat_about",
+            "join_chat", "leave_chat", "pin_message", "unpin_message", "delete_messages",
+            "send_message", "edit_message", "forward_message", "react_message", "search_messages",
+            "get_message_by_id", "mark_chat_read", "clear_chat_history", "archive_chat", "unarchive_chat"
+        ):
+            res_disp = f"tg_act: {name}"
+            prog_disp = f"tg_act {name}"
         else:
             prev = self._tool_preview(name, args)
             res_disp = prev
@@ -3468,13 +3530,12 @@ class magent(loader.Module):
         progress_lines.append(f"• <code>готовит ответ · ответ · готово · {tot_s}</code>")
         
         if rich:
-            results_html = f"<details><summary>Результаты инструментов</summary><blockquote>{'\n'.join(res_lines)}</blockquote></details>"
+            results_html = f"<details><summary>Результаты инструментов ({len(tool_steps)})</summary><blockquote>{'\n'.join(res_lines)}</blockquote></details>"
             progress_html = f"<details><summary>Ход работы</summary><blockquote>{'\n'.join(progress_lines)}</blockquote></details>"
             return f"{results_html}\n{progress_html}"
         else:
-            results_html = f"<blockquote expandable='true'><b>Результаты инструментов:</b>\n{'\n'.join(res_lines)}</blockquote>"
-            progress_html = f"<blockquote expandable='true'><b>Ход работы:</b>\n{'\n'.join(progress_lines)}</blockquote>"
-            return f"{results_html}\n\n{progress_html}"
+            combined_lines = res_lines + [f"• <code>готовит ответ · готово · {tot_s}</code>"]
+            return f"<blockquote expandable><b>Результаты инструментов ({len(tool_steps)}):</b>\n{'\n'.join(combined_lines)}</blockquote>"
 
     async def _render_tool_progress(self, status_msg, call):
         if not getattr(self, "_tool_steps", []):
@@ -3502,12 +3563,12 @@ class magent(loader.Module):
             
         cur_preview = self._tool_preview(cur.get("name", ""), cur.get("args", {}))
         
-        # CodexCLI style step progress status with sakura emoji and ∅ bullets
+        # Premium emoji style step progress status
         text = (
             f"<blockquote>"
-            f"🌸 <b>magent</b> · <code>{utils.escape_html(model)}</code> · <code>{provider}</code>\n"
-            f"∅ <b>{phase}</b> · шаг <code>{step_num}</code> · <code>{elapsed}с</code>\n"
-            f"∅ <b>Status:</b> <code>{utils.escape_html(cur_preview)}</code>"
+            f"<emoji document_id=5283176512747507510>✨</emoji> <b>magent</b> · <code>{utils.escape_html(model)}</code> · <code>{provider}</code>\n"
+            f"<emoji document_id=5287543644084011559>🛠</emoji> <b>{phase}</b> · шаг <code>{step_num}</code> · <code>{elapsed}с</code>\n"
+            f"<emoji document_id=5258094861516570110>ℹ️</emoji> <b>Status:</b> <code>{utils.escape_html(cur_preview)}</code>"
             f"</blockquote>"
         )
         text = self._maybe_clean_symbols(text)
@@ -3619,14 +3680,19 @@ class magent(loader.Module):
                     filename=args.get("filename"),
                     service=args.get("service", "x0"),
                 )
-            if name == "tg_action":
-                return await self._tool_tg_action(
-                    action=str(args.get("action", "")),
-                    target=args.get("target"),
-                    message_ids=args.get("message_ids"),
-                    limit=args.get("limit", 20),
-                    query=args.get("query"),
-                )
+            if name in ("tg_action", "tg_act") or name in (
+                "block_user", "unblock_user", "get_blocked_users", "get_contacts", "add_contact",
+                "delete_contact", "get_user_info", "get_self_profile", "set_profile_name",
+                "set_profile_bio", "set_profile_username", "get_chat_info", "get_chat_admins",
+                "get_participants", "kick_user", "ban_user", "unban_user", "mute_user",
+                "unmute_user", "promote_user", "demote_user", "set_chat_title", "set_chat_about",
+                "join_chat", "leave_chat", "pin_message", "unpin_message", "delete_messages",
+                "send_message", "edit_message", "forward_message", "react_message", "search_messages",
+                "get_message_by_id", "mark_chat_read", "clear_chat_history", "archive_chat", "unarchive_chat",
+                "get_dialogs", "get_unread_overview"
+            ):
+                act = str(args.get("action", "")).strip() or name
+                return await self._tool_tg_action(action=act, **args)
             if name == "list_dir":
                 return self._tool_list_dir(str(args.get("path", "") or "."))
             if name == "tg_send":
@@ -3936,78 +4002,364 @@ class magent(loader.Module):
         except Exception as e:
             return f"ERROR uploading file: {e}"
 
-    async def _tool_tg_action(self, action, target=None, message_ids=None, limit=20, query=None):
-        act = (action or "").strip().lower()
-        target_chat = target or self._current_tool_chat_id or "me"
-        entity = await self._tool_resolve_entity(target_chat)
-        
-        if act == "pin_message":
-            mid = int(message_ids[0] if isinstance(message_ids, list) and message_ids else (message_ids or 0))
-            if not mid:
-                return "ERROR: message_ids required for pin_message"
-            await self.client.pin_message(entity, mid, notify=False)
-            return f"OK: pinned message {mid} in {target_chat}"
+    async def _tool_tg_action(self, action, target=None, message_ids=None, limit=20, query=None, **kwargs):
+        try:
+            try:
+                from telethon.tl.functions.contacts import BlockRequest, UnblockRequest, GetBlockedRequest, GetContactsRequest, DeleteContactsRequest, AddContactRequest
+                from telethon.tl.functions.channels import JoinChannelRequest, LeaveChannelRequest, InviteToChannelRequest, GetFullChannelRequest, GetParticipantsRequest, EditAdminRequest, EditBannedRequest, EditTitleRequest
+                from telethon.tl.functions.messages import SendReactionRequest, EditChatTitleRequest, GetFullChatRequest
+                from telethon.tl.functions.account import UpdateProfileRequest, UpdateUsernameRequest
+                from telethon.tl.functions.folders import EditPeerFoldersRequest
+                from telethon.tl.types import InputFolderPeer, ChannelParticipantsAdmins, ChatBannedRights, ChatAdminRights, ReactionEmoji
+            except ImportError:
+                from herokutl.tl.functions.contacts import BlockRequest, UnblockRequest, GetBlockedRequest, GetContactsRequest, DeleteContactsRequest, AddContactRequest
+                from herokutl.tl.functions.channels import JoinChannelRequest, LeaveChannelRequest, InviteToChannelRequest, GetFullChannelRequest, GetParticipantsRequest, EditAdminRequest, EditBannedRequest, EditTitleRequest
+                from herokutl.tl.functions.messages import SendReactionRequest, EditChatTitleRequest, GetFullChatRequest
+                from herokutl.tl.functions.account import UpdateProfileRequest, UpdateUsernameRequest
+                from herokutl.tl.functions.folders import EditPeerFoldersRequest
+                from herokutl.tl.types import InputFolderPeer, ChannelParticipantsAdmins, ChatBannedRights, ChatAdminRights, ReactionEmoji
+
+            act = (action or "").strip().lower()
+            target_chat = target or kwargs.get("user") or kwargs.get("to_chat") or self._current_tool_chat_id or "me"
+            entity = await self._tool_resolve_entity(target_chat)
             
-        if act == "unpin_message":
-            mid = int(message_ids[0] if isinstance(message_ids, list) and message_ids else (message_ids or 0))
-            await self.client.unpin_message(entity, mid if mid else None)
-            return f"OK: unpinned message {mid or 'all'} in {target_chat}"
-            
-        if act == "delete_messages":
-            mids = [int(m) for m in message_ids] if isinstance(message_ids, list) else ([int(message_ids)] if message_ids else [])
-            if not mids:
-                n = max(1, min(int(limit or 1), 100))
-                mids = []
+            # --- 1. Блокировка и контакты ---
+            if act in ("block_user", "block"):
+                u_target = kwargs.get("user") or kwargs.get("user_id") or target or target_chat
+                u_ent = await self._tool_resolve_entity(u_target)
+                await self.client(BlockRequest(id=u_ent))
+                return f"OK: пользователь {getattr(u_ent, 'id', u_target)} заблокирован."
+
+            if act in ("unblock_user", "unblock"):
+                u_target = kwargs.get("user") or kwargs.get("user_id") or target or target_chat
+                u_ent = await self._tool_resolve_entity(u_target)
+                await self.client(UnblockRequest(id=u_ent))
+                return f"OK: пользователь {getattr(u_ent, 'id', u_target)} разблокирован."
+
+            if act in ("get_blocked_users", "blocked"):
+                n = max(1, min(int(limit or 20), 100))
+                res = await self.client(GetBlockedRequest(offset=0, limit=n))
+                items = []
+                for u in getattr(res, "users", []):
+                    un = f" (@{u.username})" if getattr(u, "username", None) else ""
+                    items.append(f"• [{u.id}] {get_display_name(u)}{un}")
+                return f"Заблокированные пользователи ({len(items)}):\n" + ("\n".join(items) if items else "Список пуст.")
+
+            if act in ("get_contacts", "contacts"):
+                res = await self.client(GetContactsRequest(hash=0))
+                items = []
+                for u in getattr(res, "users", [])[:max(1, min(int(limit or 50), 200))]:
+                    un = f" (@{u.username})" if getattr(u, "username", None) else ""
+                    ph = f" | {u.phone}" if getattr(u, "phone", None) else ""
+                    items.append(f"• [{u.id}] {get_display_name(u)}{un}{ph}")
+                return f"Контакты ({len(items)} из {len(getattr(res, 'users', []))}):\n" + ("\n".join(items) if items else "Контакты не найдены.")
+
+            if act in ("add_contact", "contact_add"):
+                u_target = kwargs.get("user") or kwargs.get("user_id") or target
+                u_ent = await self._tool_resolve_entity(u_target)
+                fn = str(kwargs.get("first_name") or get_display_name(u_ent) or "Contact").strip()
+                ln = str(kwargs.get("last_name") or "").strip()
+                ph = str(kwargs.get("phone") or getattr(u_ent, "phone", "") or "").strip()
+                await self.client(AddContactRequest(id=u_ent, first_name=fn, last_name=ln, phone=ph, add_phone_privacy_exception=False))
+                return f"OK: контакт '{fn} {ln}' успешно добавлен."
+
+            if act in ("delete_contact", "contact_del"):
+                u_target = kwargs.get("user") or kwargs.get("user_id") or target
+                u_ent = await self._tool_resolve_entity(u_target)
+                await self.client(DeleteContactsRequest(id=[u_ent]))
+                return f"OK: контакт {getattr(u_ent, 'id', u_target)} удален."
+
+            # --- 2. Профиль и пользователи ---
+            if act in ("get_user_info", "user_info"):
+                u_target = kwargs.get("user") or kwargs.get("user_id") or target or "me"
+                u_ent = await self._tool_resolve_entity(u_target)
+                full = None
+                try:
+                    from telethon.tl.functions.users import GetFullUserRequest
+                    full = await self.client(GetFullUserRequest(id=u_ent))
+                except Exception:
+                    try:
+                        from herokutl.tl.functions.users import GetFullUserRequest
+                        full = await self.client(GetFullUserRequest(id=u_ent))
+                    except Exception:
+                        pass
+                info = {
+                    "id": getattr(u_ent, "id", None),
+                    "first_name": getattr(u_ent, "first_name", None),
+                    "last_name": getattr(u_ent, "last_name", None),
+                    "username": getattr(u_ent, "username", None),
+                    "bot": bool(getattr(u_ent, "bot", False)),
+                    "premium": bool(getattr(u_ent, "premium", False)),
+                    "phone": getattr(u_ent, "phone", None),
+                    "about": getattr(getattr(full, "full_user", None), "about", None),
+                    "common_chats_count": getattr(getattr(full, "full_user", None), "common_chats_count", None),
+                }
+                return json.dumps(info, ensure_ascii=False, indent=2)
+
+            if act in ("get_self_profile", "self_profile", "my_profile"):
+                me = await self.client.get_me()
+                full = None
+                try:
+                    from telethon.tl.functions.users import GetFullUserRequest
+                    full = await self.client(GetFullUserRequest(id="me"))
+                except Exception:
+                    try:
+                        from herokutl.tl.functions.users import GetFullUserRequest
+                        full = await self.client(GetFullUserRequest(id="me"))
+                    except Exception:
+                        pass
+                info = {
+                    "id": me.id,
+                    "first_name": me.first_name,
+                    "last_name": me.last_name,
+                    "username": me.username,
+                    "phone": me.phone,
+                    "premium": bool(getattr(me, "premium", False)),
+                    "about": getattr(getattr(full, "full_user", None), "about", None),
+                }
+                return json.dumps(info, ensure_ascii=False, indent=2)
+
+            if act in ("set_profile_name", "edit_name"):
+                fn = str(kwargs.get("first_name") or kwargs.get("name") or kwargs.get("text") or "").strip()
+                ln = str(kwargs.get("last_name") or "").strip()
+                if not fn:
+                    return "ERROR: first_name required"
+                if not ln and " " in fn:
+                    fn, ln = fn.split(" ", 1)
+                await self.client(UpdateProfileRequest(first_name=fn[:64], last_name=ln[:64]))
+                return f"OK: имя профиля изменено на '{fn} {ln}'."
+
+            if act in ("set_profile_bio", "set_bio", "edit_bio"):
+                about = str(kwargs.get("bio") or kwargs.get("about") or kwargs.get("text") or "").strip()
+                await self.client(UpdateProfileRequest(about=about[:70]))
+                return f"OK: био профиля обновлено: '{about[:70]}'."
+
+            if act in ("set_profile_username", "set_username"):
+                un = str(kwargs.get("username") or kwargs.get("text") or "").strip().lstrip("@")
+                if un.lower() in ("-", "none", "clear", "del", "delete"):
+                    un = ""
+                await self.client(UpdateUsernameRequest(username=un))
+                return f"OK: юзернейм профиля обновлен на @{un}." if un else "OK: юзернейм профиля очищен."
+
+            # --- 3. Чаты и модерация ---
+            if act in ("get_chat_info", "chat_info"):
+                full = None
+                try:
+                    if isinstance(entity, Channel):
+                        full = await self.client(GetFullChannelRequest(channel=entity))
+                    elif isinstance(entity, Chat):
+                        full = await self.client(GetFullChatRequest(chat_id=entity.id))
+                except Exception:
+                    pass
+                fc = getattr(full, "full_chat", None)
+                info = {
+                    "id": getattr(entity, "id", None),
+                    "title": getattr(entity, "title", None) or get_display_name(entity),
+                    "username": getattr(entity, "username", None),
+                    "megagroup": bool(getattr(entity, "megagroup", False)),
+                    "broadcast": bool(getattr(entity, "broadcast", False)),
+                    "participants_count": getattr(fc, "participants_count", None),
+                    "admins_count": getattr(fc, "admins_count", None),
+                    "about": getattr(fc, "about", None),
+                }
+                return json.dumps(info, ensure_ascii=False, indent=2)
+
+            if act in ("get_chat_admins", "admins"):
+                admins = []
+                async for u in self.client.iter_participants(entity, filter=ChannelParticipantsAdmins):
+                    un = f" (@{u.username})" if getattr(u, "username", None) else ""
+                    admins.append(f"• [{u.id}] {get_display_name(u)}{un}")
+                return f"Администраторы в {getattr(entity, 'title', target_chat)} ({len(admins)}):\n" + "\n".join(admins)
+
+            if act in ("get_participants", "participants", "members"):
+                n = max(1, min(int(limit or 30), 100))
+                members = []
+                async for u in self.client.iter_participants(entity, limit=n):
+                    un = f" (@{u.username})" if getattr(u, "username", None) else ""
+                    members.append(f"• [{u.id}] {get_display_name(u)}{un}")
+                return f"Участники в {getattr(entity, 'title', target_chat)} ({len(members)}):\n" + "\n".join(members)
+
+            if act in ("kick_user", "kick"):
+                u_target = kwargs.get("user") or kwargs.get("user_id") or target
+                u_ent = await self._tool_resolve_entity(u_target)
+                await self.client.kick_participant(entity, u_ent)
+                return f"OK: участник {getattr(u_ent, 'id', u_target)} исключен из {getattr(entity, 'title', target_chat)}."
+
+            if act in ("ban_user", "ban"):
+                u_target = kwargs.get("user") or kwargs.get("user_id") or target
+                u_ent = await self._tool_resolve_entity(u_target)
+                await self.client.edit_permissions(entity, u_ent, view_messages=False)
+                return f"OK: участник {getattr(u_ent, 'id', u_target)} забанен в {getattr(entity, 'title', target_chat)}."
+
+            if act in ("unban_user", "unban"):
+                u_target = kwargs.get("user") or kwargs.get("user_id") or target
+                u_ent = await self._tool_resolve_entity(u_target)
+                await self.client.edit_permissions(entity, u_ent, view_messages=True, send_messages=True, send_media=True, send_stickers=True)
+                return f"OK: участник {getattr(u_ent, 'id', u_target)} разбанен в {getattr(entity, 'title', target_chat)}."
+
+            if act in ("mute_user", "mute"):
+                u_target = kwargs.get("user") or kwargs.get("user_id") or target
+                u_ent = await self._tool_resolve_entity(u_target)
+                sec = int(kwargs.get("seconds") or kwargs.get("duration") or 3600)
+                until = datetime.utcnow() + timedelta(seconds=max(30, min(31536000, sec)))
+                await self.client.edit_permissions(entity, u_ent, send_messages=False, until_date=until)
+                return f"OK: участник {getattr(u_ent, 'id', u_target)} замучен на {sec} сек в {getattr(entity, 'title', target_chat)}."
+
+            if act in ("unmute_user", "unmute"):
+                u_target = kwargs.get("user") or kwargs.get("user_id") or target
+                u_ent = await self._tool_resolve_entity(u_target)
+                await self.client.edit_permissions(entity, u_ent, send_messages=True)
+                return f"OK: участник {getattr(u_ent, 'id', u_target)} размучен в {getattr(entity, 'title', target_chat)}."
+
+            if act in ("promote_user", "promote"):
+                u_target = kwargs.get("user") or kwargs.get("user_id") or target
+                u_ent = await self._tool_resolve_entity(u_target)
+                await self.client.edit_admin(entity, u_ent, change_info=True, delete_messages=True, ban_users=True, invite_users=True, pin_messages=True, is_admin=True)
+                return f"OK: участник {getattr(u_ent, 'id', u_target)} назначен администратором в {getattr(entity, 'title', target_chat)}."
+
+            if act in ("demote_user", "demote"):
+                u_target = kwargs.get("user") or kwargs.get("user_id") or target
+                u_ent = await self._tool_resolve_entity(u_target)
+                await self.client.edit_admin(entity, u_ent, is_admin=False)
+                return f"OK: права администратора сняты с {getattr(u_ent, 'id', u_target)} в {getattr(entity, 'title', target_chat)}."
+
+            if act in ("set_chat_title", "title"):
+                title = str(kwargs.get("title") or kwargs.get("text") or "").strip()
+                if not title: return "ERROR: title required"
+                await self.client.edit_title(entity, title)
+                return f"OK: название чата изменено на '{title}'."
+
+            if act in ("set_chat_about", "about"):
+                about = str(kwargs.get("about") or kwargs.get("text") or "").strip()
+                await self.client.edit_about(entity, about)
+                return f"OK: описание чата обновлено."
+
+            if act in ("join_chat", "join"):
+                await self.client(JoinChannelRequest(channel=entity))
+                return f"OK: вступил в {getattr(entity, 'title', target_chat)}."
+
+            if act in ("leave_chat", "leave"):
+                await self.client(LeaveChannelRequest(channel=entity))
+                return f"OK: вышел из {getattr(entity, 'title', target_chat)}."
+
+            # --- 4. Сообщения ---
+            if act in ("send_message", "send"):
+                txt = str(kwargs.get("text") or "").strip()
+                if not txt: return "ERROR: text required"
+                reply_id = int(kwargs.get("reply_to")) if kwargs.get("reply_to") else None
+                msg = await self.client.send_message(entity, txt, reply_to=reply_id)
+                return f"OK: отправлено сообщение id={getattr(msg, 'id', None)} в {getattr(entity, 'title', target_chat)}."
+
+            if act in ("edit_message", "edit"):
+                mid = int(kwargs.get("message_id") or (message_ids[0] if message_ids else 0))
+                txt = str(kwargs.get("text") or "").strip()
+                if not mid or not txt: return "ERROR: message_id and text required"
+                await self.client.edit_message(entity, mid, txt)
+                return f"OK: отредактировано сообщение {mid} в {getattr(entity, 'title', target_chat)}."
+
+            if act in ("delete_messages", "delete"):
+                mids = [int(m) for m in message_ids] if isinstance(message_ids, list) else ([int(kwargs.get("message_id"))] if kwargs.get("message_id") else [])
+                if not mids:
+                    n = max(1, min(int(limit or 1), 100))
+                    mids = []
+                    async for m in self.client.iter_messages(entity, limit=n):
+                        mids.append(m.id)
+                if not mids: return "ERROR: no messages to delete"
+                await self.client.delete_messages(entity, mids, revoke=True)
+                return f"OK: удалено {len(mids)} сообщений из {getattr(entity, 'title', target_chat)}."
+
+            if act == "pin_message":
+                mid = int(kwargs.get("message_id") or (message_ids[0] if isinstance(message_ids, list) and message_ids else (message_ids or 0)))
+                if not mid: return "ERROR: message_id required"
+                await self.client.pin_message(entity, mid, notify=False)
+                return f"OK: закреплено сообщение {mid} в {getattr(entity, 'title', target_chat)}."
+
+            if act == "unpin_message":
+                mid = int(kwargs.get("message_id") or (message_ids[0] if isinstance(message_ids, list) and message_ids else (message_ids or 0)))
+                await self.client.unpin_message(entity, mid if mid else None)
+                return f"OK: откреплено сообщение {mid or 'all'} в {getattr(entity, 'title', target_chat)}."
+
+            if act in ("react_message", "react"):
+                mid = int(kwargs.get("message_id") or (message_ids[0] if message_ids else 0))
+                if not mid: return "ERROR: message_id required"
+                emoji_str = str(kwargs.get("emoji") or kwargs.get("reaction") or "👍").strip()
+                await self.client(SendReactionRequest(peer=entity, msg_id=mid, reaction=[ReactionEmoji(emoticon=emoji_str)]))
+                return f"OK: поставлена реакция {emoji_str} на сообщение {mid}."
+
+            if act in ("forward_message", "forward"):
+                to_target = kwargs.get("to_chat") or target
+                to_ent = await self._tool_resolve_entity(to_target)
+                from_ent = entity
+                mid = int(kwargs.get("message_id") or (message_ids[0] if message_ids else 0))
+                if not mid: return "ERROR: message_id required"
+                fwd = await self.client.forward_messages(to_ent, mid, from_peer=from_ent)
+                return f"OK: сообщение {mid} переслано в {getattr(to_ent, 'title', str(to_target))}."
+
+            if act in ("search_messages", "search"):
+                q = str(query or kwargs.get("text") or "").strip()
+                n = max(1, min(int(limit or 15), 50))
+                results = []
+                async for m in self.client.iter_messages(entity, search=q, limit=n):
+                    who = getattr(m.sender, "first_name", "") or str(m.sender_id)
+                    results.append(f"[{m.id}] {who}: {(m.text or '')[:120]}")
+                return f"Поиск '{q}' в {getattr(entity, 'title', target_chat)} ({len(results)} найдено):\n" + ("\n".join(results) if results else "Ничего не найдено.")
+
+            if act in ("get_message_by_id", "get_message"):
+                mid = int(kwargs.get("message_id") or (message_ids[0] if message_ids else 0))
+                if not mid: return "ERROR: message_id required"
+                msg = await self.client.get_messages(entity, ids=mid)
+                if not msg: return f"Сообщение {mid} не найдено."
+                who = getattr(msg.sender, "first_name", "") or str(msg.sender_id)
+                return f"[{msg.id}] От: {who} ({msg.sender_id}), Дата: {msg.date}\nТекст: {msg.text}"
+
+            if act in ("mark_chat_read", "read"):
+                await self.client.send_read_acknowledge(entity)
+                return f"OK: чат {getattr(entity, 'title', target_chat)} прочитан."
+
+            if act in ("clear_chat_history", "clear_history", "purge_chat"):
+                n = max(1, min(int(limit or 100), 1000))
+                ids = []
                 async for m in self.client.iter_messages(entity, limit=n):
-                    mids.append(m.id)
-            if not mids:
-                return "ERROR: no messages to delete"
-            await self.client.delete_messages(entity, mids, revoke=True)
-            return f"OK: deleted {len(mids)} message(s) from {target_chat}"
-            
-        if act == "get_chat_info":
-            info = {
-                "id": getattr(entity, "id", None),
-                "title": getattr(entity, "title", None) or get_display_name(entity),
-                "username": getattr(entity, "username", None),
-                "megagroup": bool(getattr(entity, "megagroup", False)),
-                "broadcast": bool(getattr(entity, "broadcast", False)),
-            }
-            return json.dumps(info, ensure_ascii=False)
-            
-        if act == "get_user_info":
-            user_ent = await self._tool_resolve_entity(target if target else "me")
-            info = {
-                "id": getattr(user_ent, "id", None),
-                "first_name": getattr(user_ent, "first_name", None),
-                "last_name": getattr(user_ent, "last_name", None),
-                "username": getattr(user_ent, "username", None),
-                "bot": bool(getattr(user_ent, "bot", False)),
-                "phone": getattr(user_ent, "phone", None),
-            }
-            return json.dumps(info, ensure_ascii=False)
-            
-        if act == "search_messages":
-            q = str(query or "").strip()
-            n = max(1, min(int(limit or 15), 50))
-            results = []
-            async for m in self.client.iter_messages(entity, search=q, limit=n):
-                who = getattr(m.sender, "first_name", "") or str(m.sender_id)
-                results.append(f"[{m.id}] {who}: {(m.text or '')[:120]}")
-            return f"Search for '{q}' in {target_chat} ({len(results)} found):\n" + "\n".join(results)
-            
-        if act == "get_dialogs":
-            n = max(1, min(int(limit or 15), 50))
-            dialogs = []
-            async for d in self.client.iter_dialogs(limit=n):
-                dialogs.append(f"[{d.id}] {d.name} ({'channel' if d.is_channel else 'group' if d.is_group else 'user'})")
-            return f"Recent dialogs ({len(dialogs)}):\n" + "\n".join(dialogs)
-            
-        if act == "mark_chat_read":
-            await self.client.send_read_acknowledge(entity)
-            return f"OK: marked {target_chat} as read"
-            
-        return f"ERROR: unknown action '{action}'. Supported: pin_message, unpin_message, delete_messages, get_chat_info, get_user_info, search_messages, get_dialogs, mark_chat_read."
+                    ids.append(m.id)
+                if ids:
+                    await self.client.delete_messages(entity, ids, revoke=True)
+                return f"OK: очищено {len(ids)} сообщений в {getattr(entity, 'title', target_chat)}."
+
+            # --- 5. Диалоги и папки ---
+            if act in ("get_dialogs", "dialogs"):
+                n = max(1, min(int(limit or 20), 100))
+                dialogs = []
+                async for d in self.client.iter_dialogs(limit=n):
+                    dtype = "channel" if d.is_channel else ("group" if d.is_group else "user")
+                    unread = f", unread: {d.unread_count}" if d.unread_count else ""
+                    dialogs.append(f"• [{d.id}] {d.name} ({dtype}{unread})")
+                return f"Диалоги ({len(dialogs)}):\n" + "\n".join(dialogs)
+
+            if act in ("get_unread_overview", "unread"):
+                unread_dialogs = 0
+                unread_msgs = 0
+                dialogs_summary = []
+                async for d in self.client.iter_dialogs(limit=200):
+                    if getattr(d, "unread_count", 0) > 0:
+                        unread_dialogs += 1
+                        unread_msgs += d.unread_count
+                        if len(dialogs_summary) < 15:
+                            dialogs_summary.append(f"• {d.name}: {d.unread_count} непрочитанных")
+                return f"Непрочитанные сообщения:\nВсего непрочитанных диалогов: {unread_dialogs}, сообщений: {unread_msgs}\n" + ("\n".join(dialogs_summary) if dialogs_summary else "Все диалоги прочитаны.")
+
+            if act in ("archive_chat", "archive"):
+                peer = await self.client.get_input_entity(entity)
+                await self.client(EditPeerFoldersRequest(folder_peers=[InputFolderPeer(peer=peer, folder_id=1)]))
+                return f"OK: чат {getattr(entity, 'title', target_chat)} архивирован."
+
+            if act in ("unarchive_chat", "unarchive"):
+                peer = await self.client.get_input_entity(entity)
+                await self.client(EditPeerFoldersRequest(folder_peers=[InputFolderPeer(peer=peer, folder_id=0)]))
+                return f"OK: чат {getattr(entity, 'title', target_chat)} разархивирован."
+
+            return f"ERROR: неизвестное действие '{action}'. Поддерживаются: block_user, unblock_user, get_blocked_users, get_contacts, add_contact, delete_contact, get_user_info, get_self_profile, set_profile_name, set_profile_bio, set_profile_username, get_chat_info, get_chat_admins, get_participants, kick_user, ban_user, unban_user, mute_user, unmute_user, promote_user, demote_user, set_chat_title, set_chat_about, join_chat, leave_chat, pin_message, unpin_message, delete_messages, send_message, edit_message, forward_message, react_message, search_messages, get_message_by_id, mark_chat_read, clear_chat_history, get_dialogs, get_unread_overview, archive_chat, unarchive_chat."
+        except Exception as e:
+            return f"ERROR: {type(e).__name__}: {e}"
 
     def _tool_list_dir(self, path):
         p = os.path.expanduser(path or ".")
@@ -4020,12 +4372,22 @@ class magent(loader.Module):
         return f"{p}:\n" + "\n".join(items) if items else f"{p}: (empty)"
 
     async def _tool_resolve_entity(self, chat):
-        chat = str(chat).strip()
-        if chat.lower() in ("me", "self", "saved", "избранное"):
+        if not chat:
             return "me"
-        if re.fullmatch(r"-?\d+", chat):
-            return int(chat)
-        return chat
+        if hasattr(chat, "id"):
+            return chat
+        c_str = str(chat).strip()
+        if c_str.lower() in ("me", "self", "saved", "избранное"):
+            return "me"
+        if re.fullmatch(r"-?\d+", c_str):
+            try:
+                return await self.client.get_entity(int(c_str))
+            except Exception:
+                return int(c_str)
+        try:
+            return await self.client.get_entity(c_str)
+        except Exception:
+            return c_str
 
     async def _tool_tg_send(self, chat, text):
         if not text.strip():
@@ -4297,7 +4659,7 @@ class magent(loader.Module):
         me = getattr(self, "me", None)
         if not getattr(me, "premium", False):
             return
-        if self.config.get("clean_symbols_mode", True):
+        if self.config.get("clean_symbols_mode", False):
             return
         if self.config.get("rich_mode", True) or "<details" in text or "<tg-thinking" in text:
             return
@@ -6844,8 +7206,8 @@ class magent(loader.Module):
         """[on/off] — Переключить режим строгих текстовых символов вместо эмодзи."""
         args = utils.get_args_raw(message).strip().lower()
         if not args:
-            cur = self.config.get("clean_symbols_mode", True)
-            st = "включен ✓" if cur else "выключен ✗"
+            cur = self.config.get("clean_symbols_mode", False)
+            st = "включен ✓" if cur else "выключен (<emoji document_id=5255836438863319289>✅</emoji> премиум эмодзи активны)"
             return await utils.answer(
                 message,
                 self._maybe_clean_symbols(
@@ -6856,6 +7218,7 @@ class magent(loader.Module):
             )
         if args in ("on", "1", "true", "вкл", "yes"):
             self.config["clean_symbols_mode"] = True
+            self.db.set(self.strings["name"], "explicit_clean_symbols", True)
             await utils.answer(
                 message,
                 self._maybe_clean_symbols(
@@ -6864,9 +7227,10 @@ class magent(loader.Module):
             )
         elif args in ("off", "0", "false", "выкл", "no"):
             self.config["clean_symbols_mode"] = False
+            self.db.set(self.strings["name"], "explicit_clean_symbols", False)
             await utils.answer(
                 message,
-                "✗ <b>Режим чистых символов выключен.</b>"
+                "<emoji document_id=5255836438863319289>✅</emoji> <b>Режим чистых символов выключен. Премиум-эмодзи активны.</b>"
             )
         else:
             await utils.answer(message, "Использование: <code>.mnoemoji on</code> или <code>.mnoemoji off</code>")
