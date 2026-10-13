@@ -2060,12 +2060,15 @@ class magent(loader.Module):
         }
         for emo, sym in mapping.items():
             res = res.replace(emo, sym)
+        # Сохраняем синие ромбы для кнопок управления
+        res = res.replace("🔷", "___BLUED_L___").replace("🔹", "___BLUED_S___")
         re_emojis = re.compile(
             r"[\U0001F300-\U0001F337\U0001F339-\U0001FAFF]|[\U0001F600-\U0001F64F]|[\U0001F680-\U0001F6FF]"
         )
         res = re_emojis.sub("", res)
         res = res.replace("\uFE0F", "").replace("\u200D", "")
         res = res.replace("▪", "∅").replace("▫", "∅").replace("▸", "∅").replace("■", "∅").replace("□", "∅")
+        res = res.replace("___BLUED_L___", "🔷").replace("___BLUED_S___", "🔹")
         return res
 
     def _maybe_clean_symbols(self, text: str) -> str:
@@ -2911,6 +2914,38 @@ class magent(loader.Module):
 
         target_model = self._resolve_effective_model(provider, self.config["model_name"], current_turn_parts, request_text_for_display)
 
+        # --- Если модель предназначена для генерации изображений ---
+        if self._is_image_model(target_model):
+            status_txt = f"✦ <b>Генерация изображения...</b>\n⌬ <i>Модель: {target_model}</i> · <code>{self._provider_label(provider)}</code>"
+            try:
+                if call: await call.edit(status_txt)
+                elif status_msg: await utils.answer(status_msg, status_txt)
+            except Exception: pass
+            try:
+                t0 = time.time()
+                img_data = await self._generate_image_bytes(provider, target_model, request_text_for_display)
+                elapsed = round(time.time() - t0, 1)
+                bio = io.BytesIO(img_data)
+                bio.name = f"{target_model}_{uuid.uuid4().hex[:6]}.jpg"
+                cap = (
+                    f"✦ <b>magent Image</b> · <code>{target_model}</code> · <code>{self._provider_label(provider)}</code> ◴{elapsed}с\n"
+                    f"» <b>Запрос:</b> <i>{utils.escape_html(request_text_for_display[:250])}</i>"
+                )
+                if call:
+                    await self.client.send_file(call.chat_id, bio, caption=cap, reply_to=call.message_id)
+                    await call.delete()
+                elif status_msg:
+                    await self.client.send_file(chat_id, bio, caption=cap, reply_to=base_message_id)
+                    await status_msg.delete()
+                self._append_to_structured_history(history_key, "user", request_text_for_display)
+                self._append_to_structured_history(history_key, "assistant", f"[Сгенерировано изображение: {target_model}]")
+                return ""
+            except Exception as e_img:
+                err_msg = f"▲ <b>Ошибка генерации изображения:</b>\n<code>{utils.escape_html(str(e_img))}</code>"
+                if call: await call.edit(err_msg)
+                elif status_msg: await utils.answer(status_msg, err_msg)
+                return ""
+
         # --- OpenAI-compatible providers (всё, кроме нативного google) ---
         if provider != "google":
             return await self._handle_openai_compatible(
@@ -3719,13 +3754,14 @@ class magent(loader.Module):
         
         if rich:
             nl = "\n"
-            results_html = f"<blockquote expandable='true'><b>⎈ Результаты инструментов ({len(tool_steps)}):</b>\n{nl.join(res_lines)}</blockquote>"
-            progress_html = f"<blockquote expandable='true'><b>◴ Ход работы:</b>\n{nl.join(progress_lines)}</blockquote>"
+            results_html = f"<details><summary>⎈ Результаты инструментов ({len(tool_steps)})</summary><p>{nl.join(res_lines)}</p></details>"
+            progress_html = f"<details><summary>◴ Ход работы</summary><p>{nl.join(progress_lines)}</p></details>"
             return f"{results_html}\n\n{progress_html}"
         else:
-            combined_lines = res_lines + [f"• <code>готовит ответ · готово · {tot_s}</code>"]
             nl = "\n"
-            return f"<blockquote><b>Результаты инструментов ({len(tool_steps)}):</b>\n{nl.join(combined_lines)}</blockquote>"
+            results_html = f"<blockquote expandable><b>⎈ Результаты инструментов ({len(tool_steps)}):</b>\n{nl.join(res_lines)}</blockquote>"
+            progress_html = f"<blockquote expandable><b>◴ Ход работы:</b>\n{nl.join(progress_lines)}</blockquote>"
+            return f"{results_html}\n\n{progress_html}"
 
     async def _render_tool_progress(self, status_msg, call):
         if not getattr(self, "_tool_steps", []):
@@ -5122,32 +5158,54 @@ class magent(loader.Module):
             response_html = self._markdown_to_html(clean_result or result_text)
             formatted_body = self._format_response_with_smart_separation(response_html)
             is_rich = bool(self.config.get("rich_mode", True))
-            if is_rich:
-                thinking_block = f"<blockquote expandable='true'><i>⌬ Ход мыслей ({len(thinking_text)} симв.):</i>\n{utils.escape_html(thinking_text)}</blockquote>\n\n" if thinking_text else ""
-                question_html = f"<blockquote expandable='true'>{utils.escape_html(request_text)}</blockquote>"
-            else:
-                thinking_block = f"<blockquote><i>⌬ Ход мыслей:</i>\n{utils.escape_html(thinking_text)}</blockquote>\n\n" if thinking_text else ""
-                question_html = f"<blockquote>{utils.escape_html(request_text[:180])}</blockquote>"
+            thinking_block = f"<blockquote expandable><i>⌬ Ход мыслей ({len(thinking_text)} симв.):</i>\n{utils.escape_html(thinking_text)}</blockquote>\n\n" if thinking_text else ""
+            question_html = f"<blockquote expandable>{utils.escape_html(request_text)}</blockquote>"
             
-            tool_summary = ""
+            tool_summary_text = ""
             if getattr(self, "_tool_steps", []):
-                tool_summary = self._build_tool_details_blocks(self._tool_steps, elapsed, rich=is_rich) + "\n\n"
+                tool_summary_text = self._build_tool_details_blocks(self._tool_steps, elapsed, rich=False) + "\n\n"
             
             text_to_send = (
                 f"{mem_indicator}\n{model_info}\n\n"
                 f"{self.strings['question_prefix']}\n{question_html}\n\n"
                 f"{self.strings['response_prefix']}\n{formatted_body}\n\n"
-                f"{tool_summary}{thinking_block}"
+                f"{tool_summary_text}{thinking_block}"
             ).strip()
             
             text_to_send = self._clean_symbols_filter(text_to_send)
             
+            rich_html = None
+            if is_rich:
+                try:
+                    rich_html = self._build_rich_response(
+                        request_text, result_text, provider, model, elapsed,
+                        tokens_in, tokens_out, mem_indicator, getattr(self, "_tool_steps", [])
+                    )
+                    rich_html = self._clean_symbols_filter(rich_html)
+                except Exception as ex:
+                    logger.warning(f"Error building rich response: {ex}")
+                    rich_html = None
+            
             buttons = self._get_inline_buttons(chat_id, base_message_id) if self.config["interactive_buttons"] else None
             
             if call:
-                await call.edit(text_to_send, reply_markup=buttons)
+                try:
+                    if is_rich and rich_html:
+                        await utils.answer(call, text_to_send, rich_message=rich_html, reply_markup=buttons)
+                    else:
+                        await call.edit(text_to_send, reply_markup=buttons)
+                except Exception as e_edit:
+                    logger.warning(f"Rich edit failed: {e_edit}, fallback to standard edit")
+                    await call.edit(text_to_send, reply_markup=buttons)
             elif status_msg:
-                await utils.answer(status_msg, text_to_send, reply_markup=buttons)
+                try:
+                    if is_rich and rich_html:
+                        await utils.answer(status_msg, text_to_send, rich_message=rich_html, reply_markup=buttons)
+                    else:
+                        await utils.answer(status_msg, text_to_send, reply_markup=buttons)
+                except Exception as e_ans:
+                    logger.warning(f"Rich answer failed: {e_ans}, fallback to standard answer")
+                    await utils.answer(status_msg, text_to_send, reply_markup=buttons)
         return ""
 
     def _markdown_to_rich_html(self, text: str) -> str:
@@ -5315,6 +5373,278 @@ class magent(loader.Module):
     # Провайдер-специфичные методы API
     # =========================================================================
 
+    def _is_image_model(self, model: str) -> bool:
+        m = str(model or "").lower()
+        image_keywords = (
+            "image", "imagen", "dall-e", "flux", "midjourney",
+            "stable-diffusion", "sdxl", "sd-", "recraft", "ideogram",
+            "cogview", "kolors", "dreamshaper", "playground-v", "auraflow", "pixart"
+        )
+        return any(kw in m for kw in image_keywords) and not any(kw in m for kw in ("vision", "multimodal", "omni"))
+
+    async def _generate_image_bytes(self, provider: str, model: str, prompt: str, input_bytes=None) -> bytes:
+        p = self._normalize_provider_name(provider)
+        if p == "google":
+            res = await self._call_google_rest(model, prompt, input_bytes)
+            if "error" in res:
+                err_msg = res["error"]["message"]
+                try: err_msg = json.loads(err_msg)["error"]["message"]
+                except: pass
+                raise ValueError(err_msg)
+            if "candidates" not in res or not res["candidates"]:
+                raise ValueError("Gemini не вернул candidates.")
+            cand = res["candidates"][0]
+            parts = cand.get("content", {}).get("parts", [])
+            for part in parts:
+                if "inlineData" in part:
+                    return base64.b64decode(part["inlineData"]["data"])
+            raise ValueError("Модель не вернула изображение (Safety Filter или неподходящая модель).")
+
+        keys = self._keys_for(p)
+        if not keys and not self._is_custom_provider(p):
+            raise ValueError(f"API ключ для {self._provider_label(p)} не настроен.")
+        api_key = keys[0] if keys else "dummy"
+
+        if self._is_custom_provider(p):
+            url = self._custom_endpoint(p, purpose="images")
+        elif p in self.OPENAI_COMPAT_ENDPOINTS:
+            url = self.OPENAI_COMPAT_ENDPOINTS[p].replace("/chat/completions", "/images/generations")
+        else:
+            url = "https://api.openai.com/v1/images/generations"
+
+        headers = {"Content-Type": "application/json"}
+        if api_key and api_key != "dummy":
+            headers["Authorization"] = f"Bearer {api_key}"
+
+        payload = {
+            "model": model,
+            "prompt": prompt,
+            "n": 1,
+            "size": "1024x1024",
+            "response_format": "b64_json"
+        }
+
+        session, req_proxy = self._tools_aiohttp_session()
+        async with session as s:
+            for attempt in range(2):
+                if attempt == 1:
+                    payload.pop("response_format", None)
+                async with s.post(url, headers=headers, json=payload, proxy=req_proxy, timeout=aiohttp.ClientTimeout(total=90)) as resp:
+                    if resp.status == 400 and attempt == 0:
+                        continue
+                    txt = await resp.text()
+                    if resp.status != 200:
+                        try:
+                            ej = json.loads(txt).get("error", {})
+                            msg = ej.get("message", txt) if isinstance(ej, dict) else txt
+                        except:
+                            msg = txt[:200]
+                        raise ValueError(f"{self._provider_label(p)} {resp.status}: {msg}")
+                    try:
+                        data = json.loads(txt)
+                    except:
+                        raise ValueError(f"Non-JSON response from {url}: {txt[:150]}")
+
+                    items = data.get("data", [])
+                    if not items and ("image" in data or "images" in data):
+                        raw_b64 = data.get("image") or data.get("images", [None])[0]
+                        if raw_b64:
+                            return base64.b64decode(raw_b64)
+                    if not items:
+                        raise ValueError(f"API вернул пустой список изображений: {txt[:150]}")
+                    first = items[0]
+                    if "b64_json" in first:
+                        return base64.b64decode(first["b64_json"])
+                    if "url" in first:
+                        img_url = first["url"]
+                        async with s.get(img_url, proxy=req_proxy, timeout=aiohttp.ClientTimeout(total=30)) as img_resp:
+                            if img_resp.status == 200:
+                                return await img_resp.read()
+                            raise ValueError(f"Не удалось скачать сгенерированное изображение: HTTP {img_resp.status}")
+        raise ValueError("Не удалось сгенерировать изображение.")
+
+    async def _send_anthropic_compatible(self, keys, url, model, messages, temperature, provider_name, extra_headers=None, tools=None):
+        now = time.time()
+        last_error = None
+        is_custom = self._is_custom_provider(provider_name)
+        if is_custom:
+            for k in keys:
+                self.key_cooldowns.pop(f"{provider_name}:{k}", None)
+        elif all(self.key_cooldowns.get(f"{provider_name}:{k}", 0) > now for k in keys):
+            for k in keys:
+                self.key_cooldowns.pop(f"{provider_name}:{k}", None)
+
+        system_parts = []
+        converted_msgs = []
+        for m in messages:
+            role = m.get("role", "user")
+            content = m.get("content", "")
+            if role == "system":
+                if isinstance(content, list):
+                    system_parts.append("\n".join(str(p.get("text", p)) for p in content))
+                else:
+                    system_parts.append(str(content))
+            elif role in ("user", "assistant"):
+                if isinstance(content, list):
+                    blocks = []
+                    for item in content:
+                        if isinstance(item, dict):
+                            if item.get("type") == "text":
+                                blocks.append({"type": "text", "text": item.get("text", "")})
+                            elif item.get("type") == "image_url":
+                                url_val = item.get("image_url", {}).get("url", "")
+                                if url_val.startswith("data:"):
+                                    meta, b64_data = url_val.split(",", 1)
+                                    mime = meta.split(";")[0].replace("data:", "")
+                                    blocks.append({
+                                        "type": "image",
+                                        "source": {"type": "base64", "media_type": mime, "data": b64_data}
+                                    })
+                                else:
+                                    blocks.append({"type": "text", "text": f"[Image: {url_val}]"})
+                            else:
+                                blocks.append({"type": "text", "text": str(item)})
+                        else:
+                            blocks.append({"type": "text", "text": str(item)})
+                    c_val = blocks if blocks else ""
+                else:
+                    c_val = str(content)
+
+                if converted_msgs and converted_msgs[-1]["role"] == role:
+                    prev = converted_msgs[-1]["content"]
+                    if isinstance(prev, str) and isinstance(c_val, str):
+                        converted_msgs[-1]["content"] = prev + "\n\n" + c_val
+                    elif isinstance(prev, list) and isinstance(c_val, list):
+                        converted_msgs[-1]["content"] = prev + c_val
+                    else:
+                        converted_msgs.append({"role": role, "content": c_val})
+                else:
+                    converted_msgs.append({"role": role, "content": c_val})
+            elif role == "tool":
+                tool_call_id = m.get("tool_call_id", "call_1")
+                tool_res = {
+                    "type": "tool_result",
+                    "tool_use_id": tool_call_id,
+                    "content": str(content)
+                }
+                if converted_msgs and converted_msgs[-1]["role"] == "user":
+                    if isinstance(converted_msgs[-1]["content"], list):
+                        converted_msgs[-1]["content"].append(tool_res)
+                    else:
+                        converted_msgs[-1]["content"] = [{"type": "text", "text": converted_msgs[-1]["content"]}, tool_res]
+                else:
+                    converted_msgs.append({"role": "user", "content": [tool_res]})
+
+        if not converted_msgs:
+            converted_msgs = [{"role": "user", "content": "..."}]
+        elif converted_msgs[0]["role"] != "user":
+            converted_msgs.insert(0, {"role": "user", "content": "..."})
+
+        anthropic_tools = []
+        if tools:
+            for t in tools:
+                fn = t.get("function", {})
+                anthropic_tools.append({
+                    "name": fn.get("name", ""),
+                    "description": fn.get("description", ""),
+                    "input_schema": fn.get("parameters", {"type": "object", "properties": {}})
+                })
+
+        payload = {
+            "model": model,
+            "messages": converted_msgs,
+            "max_tokens": 4096,
+            "temperature": min(float(temperature), 1.0),
+        }
+        if system_parts:
+            payload["system"] = "\n\n".join(system_parts)
+        if anthropic_tools:
+            payload["tools"] = anthropic_tools
+
+        async with aiohttp.ClientSession() as session:
+            for api_key in keys:
+                cd_key = f"{provider_name}:{api_key}"
+                if not is_custom and self.key_cooldowns.get(cd_key, 0) > now:
+                    continue
+                headers = {
+                    "Content-Type": "application/json",
+                    "anthropic-version": "2023-06-01",
+                }
+                if api_key and api_key != "dummy":
+                    headers["x-api-key"] = api_key
+                    headers["Authorization"] = f"Bearer {api_key}"
+                if extra_headers:
+                    headers.update(extra_headers)
+
+                for attempt in range(2):
+                    try:
+                        async with session.post(
+                            url,
+                            headers=headers,
+                            json=payload,
+                            timeout=aiohttp.ClientTimeout(total=GEMINI_TIMEOUT),
+                        ) as resp:
+                            text = await resp.text()
+                            if resp.status == 404:
+                                alt_url = self._custom_endpoint(provider_name, purpose="chat")
+                                if alt_url and alt_url != url:
+                                    logger.info(f"Anthropic 404 on {url}, falling back to OpenAI endpoint {alt_url}")
+                                    return await self._send_openai_compatible(
+                                        keys, alt_url, model, messages, temperature, provider_name, extra_headers, tools
+                                    )
+                            if resp.status == 429:
+                                if not is_custom:
+                                    self._set_key_cooldown(cd_key, 3600)
+                                last_error = ConnectionError(f"{self._provider_label(provider_name)} 429: rate limited ({text[:150]})")
+                                break
+                            if resp.status == 401:
+                                if not is_custom:
+                                    self._set_key_cooldown(cd_key, 86400 * 365)
+                                last_error = ConnectionError(f"{self._provider_label(provider_name)} 401: invalid key ({text[:150]})")
+                                break
+                            if resp.status != 200:
+                                last_error = ConnectionError(f"{self._provider_label(provider_name)} {resp.status}: {text[:200]}")
+                                break
+                            try:
+                                result = json.loads(text)
+                            except json.JSONDecodeError:
+                                raise ValueError(f"{self._provider_label(provider_name)} non-JSON response: {text[:200]}")
+
+                            text_parts = []
+                            tool_calls = []
+                            for block in result.get("content", []):
+                                if isinstance(block, dict):
+                                    if block.get("type") == "text":
+                                        text_parts.append(block.get("text", ""))
+                                    elif block.get("type") == "tool_use":
+                                        tool_calls.append({
+                                            "id": block.get("id"),
+                                            "type": "function",
+                                            "function": {
+                                                "name": block.get("name"),
+                                                "arguments": json.dumps(block.get("input", {}), ensure_ascii=False)
+                                            }
+                                        })
+                            content_str = "\n".join(text_parts).strip()
+                            usage_data = result.get("usage", {})
+                            usage = {
+                                "prompt_tokens": usage_data.get("input_tokens", 0),
+                                "completion_tokens": usage_data.get("output_tokens", 0),
+                                "total_tokens": usage_data.get("input_tokens", 0) + usage_data.get("output_tokens", 0)
+                            }
+                            if tools:
+                                msg_obj = {"role": "assistant", "content": content_str}
+                                if tool_calls:
+                                    msg_obj["tool_calls"] = tool_calls
+                                return msg_obj, usage
+                            return content_str, usage
+                    except (aiohttp.ClientError, asyncio.TimeoutError) as e:
+                        last_error = ConnectionError(f"{self._provider_label(provider_name)} connection error ({url}): {e}")
+                        break
+        if last_error:
+            raise last_error
+        raise ValueError(f"Сервер {self._provider_label(provider_name)} не вернул ответ ({url}).")
+
     async def _send_to_openrouter_api(self, model, messages, temperature, tools=None):
         keys = self._get_openrouter_keys()
         if not keys:
@@ -5421,13 +5751,16 @@ class magent(loader.Module):
             if not (name.startswith("g") or name in ("msymbols", "keytest", "kprov", "kproxytest"))
         }
 
-    def _custom_endpoint(self, provider: str = None) -> str:
+    def _custom_endpoint(self, provider: str = None, purpose: str = "chat") -> str:
         p = self._normalize_provider_name(provider)
         base = ""
+        api_type = "auto"
         if hasattr(self, "custom_providers") and p in self.custom_providers:
+            cp = self.custom_providers[p]
             cfg_url = self._get_cfg_key(f"{p}_base_url")
-            cp_url = str(self.custom_providers[p].get("base_url") or "").strip().rstrip("/")
+            cp_url = str(cp.get("base_url") or "").strip().rstrip("/")
             base = cfg_url or cp_url
+            api_type = str(cp.get("api_type") or "auto").lower()
             if cfg_url and cfg_url != cp_url:
                 self.custom_providers[p]["base_url"] = cfg_url
                 self._save_custom_providers()
@@ -5435,6 +5768,39 @@ class magent(loader.Module):
             base = self._get_cfg_key("custom_base_url").rstrip("/")
         if not base:
             return ""
+
+        base = base.rstrip("/")
+
+        if purpose == "images":
+            if base.endswith("/chat/completions"):
+                return base.replace("/chat/completions", "/images/generations")
+            if base.endswith("/messages"):
+                return base.replace("/messages", "/images/generations")
+            if base.endswith("/v1"):
+                return base + "/images/generations"
+            return base + "/v1/images/generations"
+
+        if purpose == "models":
+            if base.endswith("/chat/completions"):
+                return base.replace("/chat/completions", "/models")
+            if base.endswith("/messages"):
+                return base.replace("/messages", "/models")
+            if base.endswith("/v1"):
+                return base + "/models"
+            if base.endswith("/models"):
+                return base
+            return base + "/v1/models"
+
+        if purpose == "messages" or api_type in ("messages", "anthropic"):
+            if base.endswith("/messages"):
+                return base
+            if base.endswith("/v1"):
+                return base + "/messages"
+            return base + "/v1/messages"
+
+        # purpose == "chat"
+        if base.endswith("/messages"):
+            return base
         if base.endswith("/chat/completions"):
             return base
         if base.endswith("/v1"):
@@ -5464,7 +5830,12 @@ class magent(loader.Module):
         provider = self._normalize_provider_name(provider)
         keys = self._keys_for(provider)
         if self._is_custom_provider(provider):
-            url = self._custom_endpoint(provider)
+            cp = getattr(self, "custom_providers", {}).get(provider, {})
+            api_type = str(cp.get("api_type") or "auto").lower()
+            if api_type in ("messages", "anthropic"):
+                url = self._custom_endpoint(provider, purpose="messages")
+            else:
+                url = self._custom_endpoint(provider, purpose="chat")
             if not url:
                 raise ValueError(
                     f"▲ <b>Не задан base_url для провайдера '{self._provider_label(provider)}'.</b>\n"
@@ -5472,6 +5843,8 @@ class magent(loader.Module):
                 )
             if not keys:
                 keys = ["dummy"]
+            if url.endswith("/messages") or api_type in ("messages", "anthropic"):
+                return await self._send_anthropic_compatible(keys, url, model, messages, temperature, provider, tools=tools)
         else:
             url = self.OPENAI_COMPAT_ENDPOINTS.get(provider)
             if not url:
@@ -5552,6 +5925,13 @@ class magent(loader.Module):
                                     self._set_key_cooldown(cd_key, 86400 * 365)
                                 last_error = ConnectionError(f"{self._provider_label(provider_name)} 401: invalid key ({text[:150]})")
                                 break
+                            if resp.status == 404 and is_custom and not url.endswith("/messages"):
+                                alt_url = self._custom_endpoint(provider_name, purpose="messages")
+                                if alt_url and alt_url != url:
+                                    logger.info(f"OpenAI 404 on {url}, falling back to Anthropic endpoint {alt_url}")
+                                    return await self._send_anthropic_compatible(
+                                        keys, alt_url, model, messages, temperature, provider_name, extra_headers, tools
+                                    )
                             if resp.status == 403:
                                 err_msg = text[:150]
                                 try:
@@ -6403,38 +6783,29 @@ class magent(loader.Module):
         if not args and not input_bytes:
             return await utils.answer(message, "⬠ <b>Введите промпт.</b>\nПример: <code>.mimg кот в космосе</code>")
         prompt = args if args else "Describe/Modify this image"
-        model = self.config["image_model_name"]
+        provider = self._normalize_provider_name()
+        if provider == "google":
+            model = self.config.get("image_model_name", "gemini-2.5-flash-image")
+        else:
+            curr_model = self._provider_model_entry(provider).get("model") or self.config.get("model_name", "")
+            if self._is_image_model(curr_model):
+                model = curr_model
+            elif provider == "openai":
+                model = "dall-e-3"
+            elif provider in ("together", "openrouter"):
+                model = "black-forest-labs/flux-1-schnell"
+            else:
+                model = curr_model or "dall-e-3"
+
         m = await utils.answer(message, self.strings["gimg_process"].format(model=model))
         try:
-            res = await self._call_google_rest(model, prompt, input_bytes)
-            if "error" in res:
-                err_msg = res["error"]["message"]
-                try: err_msg = json.loads(err_msg)["error"]["message"]
-                except: pass
-                raise ValueError(err_msg)
-            img_bytes = None
-            if "candidates" not in res or not res["candidates"]:
-                raise ValueError("API вернул пустой ответ (нет candidates).")
-            candidate = res["candidates"][0]
-            if "content" not in candidate:
-                reason = candidate.get("finishReason", "Unknown")
-                raise ValueError(f"Модель отказалась генерировать. Причина: {reason}")
-            try:
-                parts = candidate["content"].get("parts", [])
-                for part in parts:
-                    if "inlineData" in part:
-                        img_bytes = base64.b64decode(part["inlineData"]["data"])
-                        break
-            except Exception as e:
-                raise ValueError(f"Ошибка чтения данных картинки: {e}")
-            if not img_bytes:
-                raise ValueError("Модель не вернула изображение (возможно, сработал Safety Filter).")
+            img_bytes = await self._generate_image_bytes(provider, model, prompt, input_bytes)
             out = io.BytesIO(img_bytes)
-            out.name = f"gemini_{uuid.uuid4().hex[:6]}.jpg"
+            out.name = f"{model}_{uuid.uuid4().hex[:6]}.jpg"
             await self.client.send_file(
                 utils.get_chat_id(message),
                 out,
-                caption=f"⬠ <b>Gemini Image</b>\n⌬ <code>{model}</code>\n∅ <code>{utils.escape_html(prompt[:100])}</code>",
+                caption=f"⬠ <b>{self._provider_label(provider)} Image</b>\n⌬ <code>{model}</code>\n∅ <code>{utils.escape_html(prompt[:100])}</code>",
                 reply_to=message.id
             )
             await m.delete()
@@ -7112,6 +7483,11 @@ class magent(loader.Module):
         )
 
         buttons = []
+        # Выделенная синяя кнопка управления текущим активным провайдером
+        buttons.append([
+            {"text": f"🔷 Управление: {self._provider_label(current_provider)} (ключ, URL, модель, удаление)", "data": f"gemini:prov:info:{current_provider}"}
+        ])
+
         row = []
         for prov in self.CORE_PROVIDER_ORDER:
             if prov == "custom":
@@ -7142,14 +7518,15 @@ class magent(loader.Module):
             buttons.append([{"text": f"{mark}{self._provider_label('custom')}", "data": "gemini:prov:set:custom"}])
 
         buttons.append([
-            {"text": "⚙ Управление и настройка", "data": "gemini:prov:manage_list"},
-            {"text": "➕ Добавить", "data": "gemini:prov:add_help"},
+            {"text": f"🔷 Настройки {self._provider_label(current_provider)}", "data": f"gemini:prov:info:{current_provider}"},
+            {"text": "⚙ Все провайдеры", "data": "gemini:prov:manage_list"},
         ])
         buttons.append([
+            {"text": "➕ Добавить новый", "data": "gemini:prov:add_help"},
             {"text": f"∅ Модели {self._provider_label(current_provider)}", "data": f"gemini:prov:models:{current_provider}"},
-            {"text": "⌖ Настройка профиля", "data": "gemini:prov:profile"},
         ])
         buttons.append([
+            {"text": "⌖ Профиль моделей", "data": "gemini:prov:profile"},
             {"text": "✗ Закрыть", "data": "gemini:close:prov"},
         ])
 
@@ -7333,12 +7710,21 @@ class magent(loader.Module):
             masked_k = self._mask_key(raw_key)
             status_act = "✓ <b>АКТИВЕН</b>" if is_active else "◈ <i>не активен</i>"
 
+            api_type = str(cp.get("api_type") or "auto").lower()
+            if api_type == "messages":
+                type_disp = "Anthropic (/v1/messages)"
+            elif api_type == "openai":
+                type_disp = "OpenAI (/v1/chat/completions)"
+            else:
+                type_disp = "Auto (по URL / fallback)"
+
             text = (
                 f"⚙ <b>Настройки провайдера: {label}</b> [<code>{prov_name}</code>]\n\n"
                 f"• <b>Статус:</b> {status_act}\n"
                 f"• <b>Base URL:</b> <code>{utils.escape_html(url)}</code>\n"
                 f"• <b>API Ключ:</b> <code>{masked_k}</code>\n"
-                f"• <b>Модель:</b> <code>{utils.escape_html(model)}</code>\n\n"
+                f"• <b>Модель:</b> <code>{utils.escape_html(model)}</code>\n"
+                f"• <b>Формат API:</b> <code>{type_disp}</code>\n\n"
                 f"• <b>Ячейки в <code>.cfg magent</code>:</b>\n"
                 f"  ├ <code>{prov_name}_api_key</code>\n"
                 f"  ├ <code>{prov_name}_base_url</code>\n"
@@ -7359,11 +7745,15 @@ class magent(loader.Module):
             ])
             buttons.append([
                 {"text": "🏷 Изменить модель", "data": f"gemini:prov:edit_model:{prov_name}"},
+                {"text": f"🔄 API: {api_type}", "data": f"gemini:prov:toggle_api:{prov_name}"},
+            ])
+            buttons.append([
                 {"text": "∅ Сбросить ключ", "data": f"gemini:prov:clear_key:{prov_name}"},
+                {"text": "🗑 Удалить", "data": f"gemini:prov:del_conf:{prov_name}"},
             ])
             buttons.append([
                 {"text": f"∅ Каталог моделей", "data": f"gemini:prov:models:{prov_name}"},
-                {"text": "🗑 Удалить", "data": f"gemini:prov:del_conf:{prov_name}"},
+                {"text": "« К выбору", "data": "gemini:prov:menu"},
             ])
             buttons.append([
                 {"text": "« К списку управления", "data": "gemini:prov:manage_list"},
@@ -7520,6 +7910,17 @@ class magent(loader.Module):
                     f"✓ <b>Base URL для <code>{name}</code> успешно обновлен:</b> <code>{utils.escape_html(val)}</code>\n"
                     f"<i>Значение синхронизировано в <code>{name}_base_url</code>.</i>"
                 )
+
+            # Редактирование типа API (messages vs openai vs auto)
+            if field in ("type", "format", "api", "api_type"):
+                t_val = val.lower()
+                if t_val not in ("messages", "openai", "auto", "chat", "anthropic"):
+                    return await utils.answer(message, "▲ Допустимые форматы: <code>auto</code>, <code>messages</code> (Anthropic), <code>openai</code> (/v1/chat)")
+                t_norm = "messages" if t_val in ("messages", "anthropic") else "openai" if t_val in ("openai", "chat") else "auto"
+                if name in getattr(self, "custom_providers", {}):
+                    self.custom_providers[name]["api_type"] = t_norm
+                    self._save_custom_providers()
+                return await utils.answer(message, f"✓ <b>Формат API для {name} установлен:</b> <code>{t_norm}</code>")
 
             # Редактирование модели
             if field in ("model", "m", "mdl"):
@@ -8486,6 +8887,17 @@ class magent(loader.Module):
                 self._activate_provider(prov)
                 try: await call.answer(f"✓ Активирован: {self._provider_label(prov)}")
                 except: pass
+                await self._show_provider_details_card(call, prov)
+                return
+            if sub == "toggle_api":
+                prov = parts[3]
+                if prov in getattr(self, "custom_providers", {}):
+                    cur_t = str(self.custom_providers[prov].get("api_type") or "auto").lower()
+                    next_t = "messages" if cur_t == "auto" else "openai" if cur_t == "messages" else "auto"
+                    self.custom_providers[prov]["api_type"] = next_t
+                    self._save_custom_providers()
+                    try: await call.answer(f"Формат API переключен: {next_t}")
+                    except: pass
                 await self._show_provider_details_card(call, prov)
                 return
             if sub == "clear_key":
