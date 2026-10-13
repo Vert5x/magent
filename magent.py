@@ -1878,9 +1878,15 @@ class magent(loader.Module):
                 saved_keys[k] = val
         self.db.set(self.strings["name"], DB_SAVED_KEYS_KEY, saved_keys)
 
-        # По умолчанию режим чистых символов выключен (премиум эмодзи активны)
-        if not self.db.get(self.strings["name"], "explicit_clean_symbols", False):
-            self.config["clean_symbols_mode"] = False
+        # Восстановление настроек режима эмодзи и rich mode
+        clean_sym = _get_db("clean_symbols_mode", None)
+        if clean_sym is None:
+            clean_sym = _get_db("explicit_clean_symbols", False)
+        self.config["clean_symbols_mode"] = bool(clean_sym)
+
+        rich_st = _get_db("rich_mode", None)
+        if rich_st is not None:
+            self.config["rich_mode"] = bool(rich_st)
 
         # --- 2. Реестр и хранилище кастомных провайдеров ---
         loaded_custom = _get_db(DB_CUSTOM_PROVIDERS_KEY, None)
@@ -1926,7 +1932,7 @@ class magent(loader.Module):
                 "model": str(self.config.get("custom_model") or "gpt-4o"),
             }
         for cp in loaded_custom.values():
-            if not cp.get("api_key") and cp.get("base_url") == cfg_url and cfg_key:
+            if cp.get("name") == "custom" and not cp.get("api_key") and cfg_key:
                 cp["api_key"] = cfg_key
         for name, cp in list(loaded_custom.items()):
             k_val = str(self.config.get(f"{name}_api_key") or saved_keys.get(f"{name}_api_key") or "").strip()
@@ -2627,12 +2633,16 @@ class magent(loader.Module):
             })
 
     def _model_info_line(self, provider: str, model: str, elapsed: float = 0.0, tokens_in: int = 0, tokens_out: int = 0) -> str:
+        clean = self.config.get("clean_symbols_mode", False)
         extra = ""
         if self.config.get("show_time", True):
-            extra += f" ◴ {round(float(elapsed or 0), 1)}с"
+            time_icon = "◴" if clean else "<tg-emoji emoji-id=5255971360965930740>🕔</tg-emoji>"
+            extra += f" {time_icon}{round(float(elapsed or 0), 1)}с"
         if self.config.get("show_tokens", True) and (tokens_in or tokens_out):
-            extra += f" ◈ {int(tokens_in or 0) + int(tokens_out or 0)}"
-        return f"<i>⌬ {self._provider_label(provider)}: <code>{utils.escape_html(str(model))}</code>{extra}</i>"
+            tok_icon = "◈" if clean else "<tg-emoji emoji-id=5255801194361688216>🪙</tg-emoji>"
+            extra += f" {tok_icon}{int(tokens_in or 0) + int(tokens_out or 0)}"
+        prov_icon = "⌬" if clean else "<tg-emoji emoji-id=5332753204281121154>⚛️</tg-emoji>"
+        return f"<i>{prov_icon} {self._provider_label(provider)}: <code>{utils.escape_html(str(model))}</code>{extra}</i>"
 
     def _extract_retry_delay_seconds(self, text: str, default: int = 3600) -> int:
         raw = str(text or "")
@@ -3711,12 +3721,14 @@ class magent(loader.Module):
         progress_lines.append(f"• <code>готовит ответ · ответ · готово · {tot_s}</code>")
         
         if rich:
-            results_html = f"<details><summary>Результаты инструментов ({len(tool_steps)})</summary><blockquote>{'\n'.join(res_lines)}</blockquote></details>"
-            progress_html = f"<details><summary>Ход работы</summary><blockquote>{'\n'.join(progress_lines)}</blockquote></details>"
-            return f"{results_html}\n{progress_html}"
+            nl = "\n"
+            results_html = f"<blockquote expandable='true'><b>⎈ Результаты инструментов ({len(tool_steps)}):</b>\n{nl.join(res_lines)}</blockquote>"
+            progress_html = f"<blockquote expandable='true'><b>◴ Ход работы:</b>\n{nl.join(progress_lines)}</blockquote>"
+            return f"{results_html}\n\n{progress_html}"
         else:
             combined_lines = res_lines + [f"• <code>готовит ответ · готово · {tot_s}</code>"]
-            return f"<blockquote expandable><b>Результаты инструментов ({len(tool_steps)}):</b>\n{'\n'.join(combined_lines)}</blockquote>"
+            nl = "\n"
+            return f"<blockquote><b>Результаты инструментов ({len(tool_steps)}):</b>\n{nl.join(combined_lines)}</blockquote>"
 
     async def _render_tool_progress(self, status_msg, call):
         if not getattr(self, "_tool_steps", []):
@@ -5112,39 +5124,31 @@ class magent(loader.Module):
             
             response_html = self._markdown_to_html(clean_result or result_text)
             formatted_body = self._format_response_with_smart_separation(response_html)
-            thinking_block = f"<blockquote expandable='true'><i>⌬ Ход мыслей:</i>\n{utils.escape_html(thinking_text)}</blockquote>\n\n" if thinking_text else ""
+            is_rich = bool(self.config.get("rich_mode", True))
+            if is_rich:
+                thinking_block = f"<blockquote expandable='true'><i>⌬ Ход мыслей ({len(thinking_text)} симв.):</i>\n{utils.escape_html(thinking_text)}</blockquote>\n\n" if thinking_text else ""
+                question_html = f"<blockquote expandable='true'>{utils.escape_html(request_text)}</blockquote>"
+            else:
+                thinking_block = f"<blockquote><i>⌬ Ход мыслей:</i>\n{utils.escape_html(thinking_text)}</blockquote>\n\n" if thinking_text else ""
+                question_html = f"<blockquote>{utils.escape_html(request_text[:180])}</blockquote>"
             
             tool_summary = ""
             if getattr(self, "_tool_steps", []):
-                tool_summary = self._build_tool_details_blocks(self._tool_steps, elapsed, rich=False) + "\n\n"
+                tool_summary = self._build_tool_details_blocks(self._tool_steps, elapsed, rich=is_rich) + "\n\n"
             
-            question_html = f"<blockquote expandable='true'>{utils.escape_html(request_text[:180])}</blockquote>"
             text_to_send = (
                 f"{mem_indicator}\n{model_info}\n\n"
                 f"{self.strings['question_prefix']}\n{question_html}\n\n"
                 f"{self.strings['response_prefix']}\n{formatted_body}\n\n"
                 f"{tool_summary}{thinking_block}"
             ).strip()
-            if call or self.config["interactive_buttons"]:
-                text_to_send = text_to_send.replace('<emoji document_id=', '<tg-emoji emoji-id=').replace('</emoji>', '</tg-emoji>')
-            text_to_send = self._maybe_clean_symbols(text_to_send)
-            buttons = self._get_inline_buttons(chat_id, base_message_id) if self.config["interactive_buttons"] else None
             
-            # Telegram Rich Mode
-            if self.config.get("rich_mode", True) and not call and status_msg:
-                try:
-                    rich_html = self._build_rich_response(
-                        request_text, result_text, provider, model, elapsed,
-                        tokens_in, tokens_out, mem_indicator, getattr(self, "_tool_steps", [])
-                    )
-                    rich_html = self._maybe_clean_symbols(rich_html)
-                    sent = await utils.answer_with_media_fallback(
-                        status_msg, text_to_send, rich_message=rich_html, reply_markup=buttons
-                    )
-                    if sent:
-                        return ""
-                except Exception as e:
-                    logger.warning(f"Rich mode send failed, falling back to standard: {e}")
+            if self.config.get("clean_symbols_mode", False):
+                text_to_send = self._clean_symbols_filter(text_to_send)
+            else:
+                text_to_send = text_to_send.replace('<emoji document_id=', '<tg-emoji emoji-id=').replace('</emoji>', '</tg-emoji>')
+            
+            buttons = self._get_inline_buttons(chat_id, base_message_id) if self.config["interactive_buttons"] else None
             
             if call:
                 await call.edit(text_to_send, reply_markup=buttons)
@@ -5389,9 +5393,9 @@ class magent(loader.Module):
         if hasattr(self, "custom_providers") and provider in self.custom_providers:
             cfg_k = self._get_cfg_key(f"{provider}_api_key")
             cp_k = str(self.custom_providers[provider].get("api_key") or "").strip()
-            key = cfg_k or cp_k or self._get_cfg_key("custom_api_key")
-            if key and key != cp_k:
-                self.custom_providers[provider]["api_key"] = key
+            key = cfg_k or cp_k or (self._get_cfg_key("custom_api_key") if provider == "custom" else "")
+            if cfg_k and cfg_k != cp_k:
+                self.custom_providers[provider]["api_key"] = cfg_k
                 self._save_custom_providers()
             return [k.strip() for k in key.split(",") if k.strip()] if key else ["dummy"]
         if provider == "google":
@@ -5416,7 +5420,7 @@ class magent(loader.Module):
         if hasattr(self, "custom_providers") and provider in self.custom_providers:
             cfg_k = self._get_cfg_key(f"{provider}_api_key")
             cp_k = str(self.custom_providers[provider].get("api_key") or "").strip()
-            k = cfg_k or cp_k or self._get_cfg_key("custom_api_key")
+            k = cfg_k or cp_k or (self._get_cfg_key("custom_api_key") if provider == "custom" else "")
             if k:
                 return k
         keys = self._keys_for(provider)
@@ -5452,7 +5456,7 @@ class magent(loader.Module):
             if cfg_url and cfg_url != cp_url:
                 self.custom_providers[p]["base_url"] = cfg_url
                 self._save_custom_providers()
-        if not base:
+        if not base and p == "custom":
             base = self._get_cfg_key("custom_base_url").rstrip("/")
         if not base:
             return ""
@@ -5469,7 +5473,7 @@ class magent(loader.Module):
             cfg_url = self._get_cfg_key(f"{p}_base_url")
             cp_url = str(self.custom_providers[p].get("base_url") or "").strip().rstrip("/")
             base = cfg_url or cp_url
-        if not base:
+        if not base and p == "custom":
             base = self._get_cfg_key("custom_base_url").rstrip("/")
         if not base:
             return ""
@@ -7512,7 +7516,7 @@ class magent(loader.Module):
                     self.custom_providers[name]["api_key"] = val
                     self._save_custom_providers()
                     self._persist_key(f"{name}_api_key", val)
-                    if self._normalize_provider_name() == name:
+                    if name == "custom":
                         self._persist_key("custom_api_key", val)
                 else:
                     cfg_k = self._provider_spec(name).get("cfg_key", f"{name}_api_key")
@@ -7532,7 +7536,7 @@ class magent(loader.Module):
                     self.custom_providers[name]["base_url"] = val
                     self._save_custom_providers()
                     self._persist_key(f"{name}_base_url", val)
-                    if self._normalize_provider_name() == name:
+                    if name == "custom":
                         self._persist_key("custom_base_url", val)
                 else:
                     self._persist_key(f"{name}_base_url", val)
@@ -7550,9 +7554,9 @@ class magent(loader.Module):
                     self.custom_providers[name]["model"] = val
                     self._save_custom_providers()
                     self._persist_key(f"{name}_model", val)
-                    self._persist_key("custom_model", val)
+                    if name == "custom":
+                        self._persist_key("custom_model", val)
                     if self._normalize_provider_name() == name:
-                        self.config["custom_model"] = val
                         self.config["model_name"] = val
                         self._persist_key("model_name", val)
                         if hasattr(self, "db") and hasattr(self, "strings"):
@@ -7622,11 +7626,14 @@ class magent(loader.Module):
             self._register_custom_provider_config(name, self.custom_providers[name])
             if key:
                 self._persist_key(f"{name}_api_key", key)
-                self._persist_key("custom_api_key", key)
+                if name == "custom":
+                    self._persist_key("custom_api_key", key)
             self._persist_key(f"{name}_base_url", url)
-            self._persist_key("custom_base_url", url)
+            if name == "custom":
+                self._persist_key("custom_base_url", url)
             self._persist_key(f"{name}_model", model)
-            self._persist_key("custom_model", model)
+            if name == "custom":
+                self._persist_key("custom_model", model)
             self._remember_provider_model(name, model, manual=True)
             self._activate_provider(name)
             key_status = "✓ Задан" if key else "∅ Без ключа (локальный/свободный)"
@@ -7774,22 +7781,37 @@ class magent(loader.Module):
 
     @loader.command()
     async def mrich(self, message: Message):
-        """[on/off] — Переключить Rich Mode (спойлеры <details>, блоки размышлений, таблицы)."""
+        """[on/off] — Переключить Rich Mode (сворачиваемые блоки размышлений, ход работы, результаты инструментов)."""
         args = utils.get_args_raw(message).strip().lower()
         if not args:
-            status = "включен ✓" if self.config.get("rich_mode", True) else "выключен ✗"
+            cur = bool(self.config.get("rich_mode", True))
+            status = "включен ✓" if cur else "выключен ✗"
             return await utils.answer(
                 message,
-                f"⬡ <b>Telegram Rich Mode</b>: {status}\n"
-                "<i>Поддерживает нативные аккордеоны &lt;details&gt;, thinking-блоки модели, таблицы и расширенную разметку.</i>\n\n"
-                "Использование: <code>.mrich on</code> или <code>.mrich off</code>"
+                self._maybe_clean_symbols(
+                    f"⬡ <b>Telegram Rich Mode</b>: {status}\n"
+                    "<i>Форматирует ответы со сворачиваемыми блоками Telegram (&lt;blockquote expandable&gt;): ход мыслей модели, результаты инструментов, цитата запроса.</i>\n\n"
+                    "Использование: <code>.mrich on</code> или <code>.mrich off</code>"
+                )
             )
         if args in ("on", "1", "true", "вкл", "yes"):
             self.config["rich_mode"] = True
-            await utils.answer(message, "✓ <b>Telegram Rich Mode включен!</b> Ответы будут форматироваться с нативными деталями и thinking-блоками.")
+            if hasattr(self, "db") and hasattr(self, "strings"):
+                self.db.set(self.strings["name"], "rich_mode", True)
+            self._persist_key("rich_mode", True)
+            await utils.answer(
+                message,
+                self._maybe_clean_symbols("✓ <b>Telegram Rich Mode включен!</b> Ответы будут форматироваться со сворачиваемыми блоками Telegram (&lt;blockquote expandable&gt;).")
+            )
         elif args in ("off", "0", "false", "выкл", "no"):
             self.config["rich_mode"] = False
-            await utils.answer(message, "✗ <b>Telegram Rich Mode выключен.</b> Используется классическая разметка blockquote.")
+            if hasattr(self, "db") and hasattr(self, "strings"):
+                self.db.set(self.strings["name"], "rich_mode", False)
+            self._persist_key("rich_mode", False)
+            await utils.answer(
+                message,
+                self._maybe_clean_symbols("✗ <b>Telegram Rich Mode выключен.</b> Используются обычные компактные цитаты.")
+            )
         else:
             await utils.answer(message, "Использование: <code>.mrich on</code> или <code>.mrich off</code>")
 
@@ -7803,7 +7825,7 @@ class magent(loader.Module):
         """[on/off] — Переключить режим строгих текстовых символов вместо эмодзи."""
         args = utils.get_args_raw(message).strip().lower()
         if not args:
-            cur = self.config.get("clean_symbols_mode", False)
+            cur = bool(self.config.get("clean_symbols_mode", False))
             st = "включен ✓" if cur else "выключен (<emoji document_id=5255836438863319289>✅</emoji> премиум эмодзи активны)"
             return await utils.answer(
                 message,
@@ -7815,16 +7837,22 @@ class magent(loader.Module):
             )
         if args in ("on", "1", "true", "вкл", "yes"):
             self.config["clean_symbols_mode"] = True
-            self.db.set(self.strings["name"], "explicit_clean_symbols", True)
+            if hasattr(self, "db") and hasattr(self, "strings"):
+                self.db.set(self.strings["name"], "explicit_clean_symbols", True)
+                self.db.set(self.strings["name"], "clean_symbols_mode", True)
+            self._persist_key("clean_symbols_mode", True)
             await utils.answer(
                 message,
-                self._maybe_clean_symbols(
+                self._clean_symbols_filter(
                     "✓ <b>Режим чистых символов включен.</b> Все эмодзи заменяются на специальные Unicode-символы."
                 )
             )
         elif args in ("off", "0", "false", "выкл", "no"):
             self.config["clean_symbols_mode"] = False
-            self.db.set(self.strings["name"], "explicit_clean_symbols", False)
+            if hasattr(self, "db") and hasattr(self, "strings"):
+                self.db.set(self.strings["name"], "explicit_clean_symbols", False)
+                self.db.set(self.strings["name"], "clean_symbols_mode", False)
+            self._persist_key("clean_symbols_mode", False)
             await utils.answer(
                 message,
                 "<emoji document_id=5255836438863319289>✅</emoji> <b>Режим чистых символов выключен. Премиум-эмодзи активны.</b>"
@@ -8657,10 +8685,10 @@ class magent(loader.Module):
                 return
             prov = data.get("provider")
             api_key = data.get("key")
-            cfg_key = PROVIDER_KEY_CFG.get(prov)
+            cfg_key = self.PROVIDER_KEY_CFG.get(prov)
             if not cfg_key:
                 if self._is_custom_provider(prov):
-                    cfg_key = "custom_api_key"
+                    cfg_key = f"{prov}_api_key"
                 else:
                     try: await call.answer(f"▲ Не найден параметр конфига для {prov}", show_alert=True)
                     except: pass
