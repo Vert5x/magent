@@ -1275,162 +1275,163 @@ class magent(loader.Module):
         "cfg_openai_model_doc": "Модель OpenAI (если не задана — используется model_name).",
         "cfg_deepseek_model_doc": "Модель DeepSeek (если не задана — используется model_name).",
         "no_api_key": (
-            "<emoji document_id=5255834944214700444>❗️</emoji> <b>Api ключ(и) не настроен(ы).</b>\n"
-            "<emoji document_id=5258094861516570110>ℹ️</emoji> Получить ключи можно:\n"
-            '• Google Gemini: <a href="https://aistudio.google.com/app/apikey">здесь</a>\n'
-            '• OpenRouter: <a href="https://openrouter.ai/settings/keys">здесь</a>\n'
-            '• HuggingFace: <a href="https://huggingface.co/settings/tokens">здесь</a>\n'
-            '• OpenAI: <a href="https://platform.openai.com/api-keys">здесь</a>\n'
-            '• DeepSeek: <a href="https://platform.deepseek.com/api_keys">здесь</a>\n'
-            '<b>Добавьте ключ(и) в конфиге модуля:</b> <code>.cfg magent api_key</code>'
+            "▲ <b>Api ключ(и) не настроен(ы).</b>\n"
+            "⌕ Получить ключи можно:\n"
+            "• Google Gemini: <a href=\"https://aistudio.google.com/app/apikey\">здесь</a>\n"
+            "• OpenRouter: <a href=\"https://openrouter.ai/settings/keys\">здесь</a>\n"
+            "• HuggingFace: <a href=\"https://huggingface.co/settings/tokens\">здесь</a>\n"
+            "• OpenAI: <a href=\"https://platform.openai.com/api-keys\">здесь</a>\n"
+            "• DeepSeek: <a href=\"https://platform.deepseek.com/api_keys\">здесь</a>\n"
+            "<b>Добавьте ключ(и) в конфиге модуля:</b> <code>.cfg magent api_key</code>"
         ),
-        "no_api_key_openrouter": '<emoji document_id=5255834944214700444>❗️</emoji> <b>API ключ для OpenRouter не настроен.</b>\nПолучить ключ можно <a href="https://openrouter.ai/settings/keys">здесь</a>.\n<b>Добавьте ключ в конфиге модуля:</b> <code>.cfg magent openrouter_api_key</code>',
-        "no_api_key_huggingface": '<emoji document_id=5255834944214700444>❗️</emoji> <b>API ключ для HuggingFace не настроен.</b>\nПолучить ключ можно <a href="https://huggingface.co/settings/tokens">здесь</a>.\n<b>Добавьте ключ в конфиге модуля:</b> <code>.cfg magent huggingface_api_key</code>',
-        "no_api_key_openai": '<emoji document_id=5255834944214700444>❗️</emoji> <b>API ключ для OpenAI не настроен.</b>\nПолучить ключ можно <a href="https://platform.openai.com/api-keys">здесь</a>.\n<b>Добавьте ключ в конфиге модуля:</b> <code>.cfg magent openai_api_key</code>',
-        "no_api_key_deepseek": '<emoji document_id=5255834944214700444>❗️</emoji> <b>API ключ для DeepSeek не настроен.</b>\nПолучить ключ можно <a href="https://platform.deepseek.com/api_keys">здесь</a>.\n<b>Добавьте ключ в конфиге модуля:</b> <code>.cfg magent deepseek_api_key</code>',
-        "invalid_api_key_openrouter": '<emoji document_id=5255834944214700444>❗️</emoji> <b>Предоставленный API ключ OpenRouter недействителен.</b>',
-        "invalid_api_key_huggingface": '<emoji document_id=5255834944214700444>❗️</emoji> <b>Предоставленный API ключ HuggingFace недействителен.</b>',
-        "invalid_api_key_openai": '<emoji document_id=5255834944214700444>❗️</emoji> <b>Предоставленный API ключ OpenAI недействителен.</b>',
-        "invalid_api_key_deepseek": '<emoji document_id=5255834944214700444>❗️</emoji> <b>Предоставленный API ключ DeepSeek недействителен.</b>',
-        "gmodel_list_title_openrouter": "<emoji document_id=5256060567436693438>📋</emoji> <b>Доступные модели OpenRouter:</b>",
-        "gmodel_list_title_huggingface": "<emoji document_id=5256060567436693438>📋</emoji> <b>Доступные модели HuggingFace:</b>",
-        "gmodel_list_title_openai": "<emoji document_id=5256060567436693438>📋</emoji> <b>Доступные модели OpenAI:</b>",
-        "gmodel_list_title_deepseek": "<emoji document_id=5256060567436693438>📋</emoji> <b>Доступные модели DeepSeek:</b>",
-        "invalid_api_key": '<emoji document_id=5255834944214700444>❗️</emoji> <b>Предоставленный API ключ Google недействителен.</b>',
-        "all_keys_exhausted": "<emoji document_id=5255834944214700444>❗️</emoji> <b>Все доступные API ключи ({}) исчерпали свою квоту.</b>\nПопробуйте позже или добавьте новые ключи в конфиге: <code>.cfg magent api_key</code>",
-        "no_prompt_or_media": "<emoji document_id=5255816510215062547>⚠️</emoji> <i>Нужен текст или ответ на медиа/файл.</i>",
-        "processing": "<emoji document_id=5258464610956115173>⌛️</emoji> <b>Обработка...</b>",
-        "api_error": "<emoji document_id=5255834944214700444>❗️</emoji> <b>Ошибка API:</b>\n<code>{}</code>",
-        "api_timeout": f"<emoji document_id=5255834944214700444>❗️</emoji> <b>Таймаут ответа от API ({GEMINI_TIMEOUT} сек).</b>",
-        "blocked_error": "<emoji document_id=5255834944214700444>🚫</emoji> <b>Запрос/ответ заблокирован.</b>\n<code>{}</code>",
-        "generic_error": "<emoji document_id=5255834944214700444>❗️</emoji> <b>Ошибка:</b>\n<code>{}</code>",
-        "question_prefix": "<emoji document_id=5280882957261770698>💬</emoji> <b>Запрос:</b>",
-        "response_prefix": "<emoji document_id=5283176512747507510>✨</emoji> <b>AI:</b>",
-        "unsupported_media_type": "<emoji document_id=5255816510215062547>⚠️</emoji> <b>Формат медиа ({}) не поддерживается.</b>",
-        "memory_status": "<emoji document_id=5256212342991001393>🧠</emoji> [{}/{}]",
-        "memory_status_unlimited": "<emoji document_id=5256212342991001393>🧠</emoji> [{}/∞]",
-        "memory_status_global": "<emoji document_id=5256212342991001393>🧠</emoji> [<emoji document_id=5255801194361688216>🌍</emoji> GLOBAL/{}]",
-        "memory_cleared": "<emoji document_id=5280499068789887600>🧹</emoji> <b>Память диалога очищена.</b>",
-        "memory_cleared_global": "<emoji document_id=5280499068789887600>🧹</emoji> <b>Глобальная память очищена.</b>",
-        "memory_cleared_gauto": "<emoji document_id=5280499068789887600>🧹</emoji> <b>Память mauto в этом чате очищена.</b>",
-        "no_memory_to_clear": "<emoji document_id=5258094861516570110>ℹ️</emoji> <b>В этом чате нет истории.</b>",
-        "gres_global_cleared": "<emoji document_id=5280499068789887600>🧹</emoji> <b>Вся глобальная память очищена.</b>",
-        "gres_no_global": "<emoji document_id=5258094861516570110>ℹ️</emoji> <b>Глобальная память и так пуста.</b>",
-        "no_gauto_memory_to_clear": "<emoji document_id=5258094861516570110>ℹ️</emoji> <b>В этом чате нет истории mauto.</b>",
-        "memory_chats_title": "<emoji document_id=5256212342991001393>🧠</emoji> <b>Чаты с историей ({}):</b>",
+        "no_api_key_openrouter": "▲ <b>API ключ для OpenRouter не настроен.</b>\nПолучить ключ можно <a href=\"https://openrouter.ai/settings/keys\">здесь</a>.\n<b>Добавьте ключ в конфиге модуля:</b> <code>.cfg magent openrouter_api_key</code>",
+        "no_api_key_huggingface": "▲ <b>API ключ для HuggingFace не настроен.</b>\nПолучить ключ можно <a href=\"https://huggingface.co/settings/tokens\">здесь</a>.\n<b>Добавьте ключ в конфиге модуля:</b> <code>.cfg magent huggingface_api_key</code>",
+        "no_api_key_openai": "▲ <b>API ключ для OpenAI не настроен.</b>\nПолучить ключ можно <a href=\"https://platform.openai.com/api-keys\">здесь</a>.\n<b>Добавьте ключ в конфиге модуля:</b> <code>.cfg magent openai_api_key</code>",
+        "no_api_key_deepseek": "▲ <b>API ключ для DeepSeek не настроен.</b>\nПолучить ключ можно <a href=\"https://platform.deepseek.com/api_keys\">здесь</a>.\n<b>Добавьте ключ в конфиге модуля:</b> <code>.cfg magent deepseek_api_key</code>",
+        "invalid_api_key_openrouter": "▲ <b>Предоставленный API ключ OpenRouter недействителен.</b>",
+        "invalid_api_key_huggingface": "▲ <b>Предоставленный API ключ HuggingFace недействителен.</b>",
+        "invalid_api_key_openai": "▲ <b>Предоставленный API ключ OpenAI недействителен.</b>",
+        "invalid_api_key_deepseek": "▲ <b>Предоставленный API ключ DeepSeek недействителен.</b>",
+        "gmodel_list_title_openrouter": "∅ <b>Доступные модели OpenRouter:</b>",
+        "gmodel_list_title_huggingface": "∅ <b>Доступные модели HuggingFace:</b>",
+        "gmodel_list_title_openai": "∅ <b>Доступные модели OpenAI:</b>",
+        "gmodel_list_title_deepseek": "∅ <b>Доступные модели DeepSeek:</b>",
+        "invalid_api_key": "▲ <b>Предоставленный API ключ Google недействителен.</b>",
+        "all_keys_exhausted": "▲ <b>Все доступные API ключи ({}) исчерпали свою квоту.</b>\nПопробуйте позже или добавьте новые ключи в конфиге: <code>.cfg magent api_key</code>",
+        "no_prompt_or_media": "▲ <i>Нужен текст или ответ на медиа/файл.</i>",
+        "processing": "🌸 <b>Обработка...</b>",
+        "api_error": "▲ <b>Ошибка API:</b>\n<code>{}</code>",
+        "api_timeout": f"▲ <b>Таймаут ответа от API ({GEMINI_TIMEOUT} сек).</b>",
+        "blocked_error": "▲ <b>Запрос/ответ заблокирован.</b>\n<code>{}</code>",
+        "generic_error": "▲ <b>Ошибка:</b>\n<code>{}</code>",
+        "question_prefix": "» <b>Запрос:</b>",
+        "response_prefix": "✦ <b>AI:</b>",
+        "unsupported_media_type": "▲ <b>Формат медиа ({}) не поддерживается.</b>",
+        "memory_status": "⏣ [{}/{}]",
+        "memory_status_unlimited": "⏣ [{}/∞]",
+        "memory_status_global": "⏣ [◎ GLOBAL/{}]",
+        "memory_cleared": "⌫ <b>Память диалога очищена.</b>",
+        "memory_cleared_global": "⌫ <b>Глобальная память очищена.</b>",
+        "memory_cleared_gauto": "⌫ <b>Память mauto в этом чате очищена.</b>",
+        "no_memory_to_clear": "⌕ <b>В этом чате нет истории.</b>",
+        "gres_global_cleared": "⌫ <b>Вся глобальная память очищена.</b>",
+        "gres_no_global": "⌕ <b>Глобальная память и так пуста.</b>",
+        "no_gauto_memory_to_clear": "⌕ <b>В этом чате нет истории mauto.</b>",
+        "memory_chats_title": "⏣ <b>Чаты с историей ({}):</b>",
         "memory_chat_line": "  • {} (<code>{}</code>)",
-        "no_memory_found": "<emoji document_id=5258094861516570110>ℹ️</emoji> Память AI пуста.",
+        "no_memory_found": "⌕ Память AI пуста.",
         "media_reply_placeholder": "[ответ на медиа]",
-        "btn_clear": "🧹 Очистить",
-        "btn_regenerate": "🔄 Другой ответ",
+        "btn_clear": "⌫ Очистить",
+        "btn_regenerate": "↺ Другой ответ",
         "no_last_request": "Последний запрос не найден для повторной генерации.",
-        "memory_fully_cleared": "<emoji document_id=5280499068789887600>🧹</emoji> <b>Вся память полностью очищена (затронуто {} чатов).</b>",
-        "gauto_memory_fully_cleared": "<emoji document_id=5280499068789887600>🧹</emoji> <b>Вся память mauto полностью очищена (затронуто {} чатов).</b>",
-        "no_memory_to_fully_clear": "<emoji document_id=5258094861516570110>ℹ️</emoji> <b>Память и так пуста.</b>",
-        "no_gauto_memory_to_fully_clear": "<emoji document_id=5258094861516570110>ℹ️</emoji> <b>Память mauto и так пуста.</b>",
+        "memory_fully_cleared": "⌫ <b>Вся память полностью очищена (затронуто {} чатов).</b>",
+        "gauto_memory_fully_cleared": "⌫ <b>Вся память mauto полностью очищена (затронуто {} чатов).</b>",
+        "no_memory_to_fully_clear": "⌕ <b>Память и так пуста.</b>",
+        "no_gauto_memory_to_fully_clear": "⌕ <b>Память mauto и так пуста.</b>",
         "response_too_long": "Ответ AI был слишком длинным и отправлен в виде файла.",
-        "gclear_usage": "<emoji document_id=5258094861516570110>ℹ️</emoji> <b>Использование:</b> <code>.mclear [global/auto]</code>",
-        "gres_usage": "<emoji document_id=5258094861516570110>ℹ️</emoji> <b>Использование:</b> <code>.mres [global/auto]</code>",
-        "auto_mode_on": "<emoji document_id=5258094359005395573>🎭</emoji> <b>Режим авто-ответа включен в этом чате.</b>\nЯ буду отвечать на сообщения с вероятностью {}%.",
-        "auto_mode_off": "<emoji document_id=5258094359005395573>🎭</emoji> <b>Режим авто-ответа выключен в этом чате.</b>",
-        "auto_mode_chats_title": "<emoji document_id=5258094359005395573>🎭</emoji> <b>Чаты с активным авто-ответом ({}):</b>",
-        "no_auto_mode_chats": "<emoji document_id=5258094861516570110>ℹ️</emoji> Нет чатов с включенным режимом авто-ответа.",
-        "auto_mode_usage": "<emoji document_id=5258094861516570110>ℹ️</emoji> <b>Использование:</b> <code>.mauto on/off или [id/username] [on/off]</code>",
-        "gauto_chat_not_found": "<emoji document_id=5255834944214700444>🚫</emoji> <b>Не удалось найти чат:</b> <code>{}</code>",
-        "gauto_state_updated": "<emoji document_id=5258094359005395573>🎭</emoji> <b>Режим авто-ответа для чата {} {}</b>",
+        "gclear_usage": "⌕ <b>Использование:</b> <code>.mclear [global/auto]</code>",
+        "gres_usage": "⌕ <b>Использование:</b> <code>.mres [global/auto]</code>",
+        "auto_mode_on": "⍟ <b>Режим авто-ответа включен в этом чате.</b>\nЯ буду отвечать на сообщения с вероятностью {}%.",
+        "auto_mode_off": "⍟ <b>Режим авто-ответа выключен в этом чате.</b>",
+        "auto_mode_chats_title": "⍟ <b>Чаты с активным авто-ответом ({}):</b>",
+        "no_auto_mode_chats": "⌕ Нет чатов с включенным режимом авто-ответа.",
+        "auto_mode_usage": "⌕ <b>Использование:</b> <code>.mauto on/off или [id/username] [on/off]</code>",
+        "gauto_chat_not_found": "▲ <b>Не удалось найти чат:</b> <code>{}</code>",
+        "gauto_state_updated": "⍟ <b>Режим авто-ответа для чата {} {}</b>",
         "gauto_enabled": "включен",
         "gauto_disabled": "выключен",
-        "gch_usage": "<emoji document_id=5258094861516570110>ℹ️</emoji> <b>Использование:</b>\n<code>.mch &lt;кол-во&gt; &lt;вопрос&gt;</code>\n<code>.mch &lt;id чата&gt; &lt;кол-во&gt; &lt;вопрос&gt;</code>",
-        "gch_processing": "<emoji document_id=5258464610956115173>⌛️</emoji> <b>Анализирую {} сообщений...</b>",
+        "gch_usage": "⌕ <b>Использование:</b>\n<code>.mch <кол-во> <вопрос></code>\n<code>.mch <id чата> <кол-во> <вопрос></code>",
+        "gch_processing": "🌸 <b>Анализирую {} сообщений...</b>",
         "gch_result_caption": "Анализ последних {} сообщений",
         "gch_result_caption_from_chat": "Анализ последних {} сообщений из чата <b>{}</b>",
-        "gch_invalid_args": "<emoji document_id=5255834944214700444>❗️</emoji> <b>Неверные аргументы.</b>\n{}",
-        "gch_chat_error": "<emoji document_id=5255834944214700444>❗️</emoji> <b>Ошибка доступа к чату</b> <code>{}</code>: <i>{}</i>",
-        "gask_no_prompt": "<emoji document_id=5255816510215062547>⚠️</emoji> <b>Введите вопрос или ответьте командой на сообщение.</b>",
+        "gch_invalid_args": "▲ <b>Неверные аргументы.</b>\n{}",
+        "gch_chat_error": "▲ <b>Ошибка доступа к чату</b> <code>{}</code>: <i>{}</i>",
+        "gask_no_prompt": "▲ <b>Введите вопрос или ответьте командой на сообщение.</b>",
         "gprovider_usage": (
-            "<emoji document_id=5258094861516570110>ℹ️</emoji> <b>Использование:</b> <code>.mprovider [провайдер]</code>\n"
+            "⌕ <b>Использование:</b> <code>.mprovider [провайдер]</code>\n"
             "• <code>.mprovider</code> — интерактивное меню\n"
             "• <code>.mprovider add &lt;имя&gt; &lt;url&gt; [ключ] [модель]</code> — добавить кастомный\n"
             "• <code>.mprovider del &lt;имя&gt;</code> — удалить кастомный\n"
             "• <code>.mprovider list</code> — список всех провайдеров"
         ),
         "gprovider_current": (
-            "<emoji document_id=5255868749902283539>🧩</emoji> <b>Текущий провайдер:</b> <code>{}</code>\n"
-            "<emoji document_id=5256212342991001393>🧠</emoji> <b>Модель:</b> <code>{}</code>\n\n"
+            "⌘ <b>Текущий провайдер:</b> <code>{}</code>\n"
+            "⌬ <b>Модель:</b> <code>{}</code>\n\n"
             "<b>Все модели:</b>\n"
-            "<emoji document_id=5285219675934854622>🤖</emoji> Gemini: <code>{}</code>\n"
-            "<emoji document_id=5280529365489193783>🔗</emoji> OpenRouter: <code>{}</code>\n"
-            "🤗 HuggingFace: <code>{}</code>\n"
-            "<emoji document_id=5278763360836422506>💻</emoji> OpenAI: <code>{}</code>\n"
-            "🦖 DeepSeek: <code>{}</code>\n\n"
+            "✦ Gemini: <code>{}</code>\n"
+            "✦ OpenRouter: <code>{}</code>\n"
+            "✦ HuggingFace: <code>{}</code>\n"
+            "✦ OpenAI: <code>{}</code>\n"
+            "✦ DeepSeek: <code>{}</code>\n\n"
             "<code>.mmodel</code> — сменить модель\n"
             "<code>.mprovider</code> — сменить провайдера"
         ),
-        "gprovider_set": "<emoji document_id=5255836438863319289>✅</emoji> <b>Провайдер:</b> <code>{}</code>\n<emoji document_id=5256212342991001393>🧠</emoji> <b>Модель:</b> <code>{}</code>",
-        "gprofile_usage": "<emoji document_id=5258094861516570110>ℹ️</emoji> <b>Использование:</b> <code>.mprofile [auto|balanced|fast|reasoning|coding|vision|manual]</code>",
-        "gprofile_set": "<emoji document_id=5255836438863319289>✅</emoji> <b>Профиль модели:</b> <code>{}</code>\n<emoji document_id=5256212342991001393>🧠</emoji> <b>Для текущего провайдера:</b> <code>{}</code>",
-        "gmodel_usage": "<emoji document_id=5258094861516570110>ℹ️</emoji> <b>Использование:</b> <code>.mmodel [модель] [--s|-s]</code>\n• [модель] — установить модель.\n• --s/-s — показать список доступных моделей (или <code>.mmodels</code>).",
-        "gmodels_usage": "<emoji document_id=5258094861516570110>ℹ️</emoji> <b>Использование:</b> <code>.mmodels [провайдер] [поиск]</code>\n• Интерактивное инлайн-меню моделей провайдера из API (curl) с выбором по кнопке.",
-        "gmodel_list_title": "<emoji document_id=5256060567436693438>📋</emoji> <b>Доступные модели Gemini (по вашему API):</b>",
+        "gprovider_set": "✓ <b>Провайдер:</b> <code>{}</code>\n⌬ <b>Модель:</b> <code>{}</code>",
+        "gprofile_usage": "⌕ <b>Использование:</b> <code>.mprofile [auto|balanced|fast|reasoning|coding|vision|manual]</code>",
+        "gprofile_set": "✓ <b>Профиль модели:</b> <code>{}</code>\n⌬ <b>Для текущего провайдера:</b> <code>{}</code>",
+        "gmodel_usage": "⌕ <b>Использование:</b> <code>.mmodel [модель] [--s|-s]</code>\n• [модель] — установить модель.\n• --s/-s — показать список доступных моделей (или <code>.mmodels</code>).",
+        "gmodels_usage": "⌕ <b>Использование:</b> <code>.mmodels [провайдер] [поиск]</code>\n• Интерактивное инлайн-меню моделей провайдера из API (curl) с выбором по кнопке.",
+        "gmodel_list_title": "∅ <b>Доступные модели Gemini (по вашему API):</b>",
         "gmodel_list_item": "• <code>{}</code> — {} (поддержка: {})",
         "gmodel_img_support": "Поддержка изображений",
         "gmodel_no_support": "Нет поддержки изображений",
-        "gmodel_img_warn": "<emoji document_id=5255816510215062547>⚠️</emoji> <b>Текущая модель ({}) не может генерировать изображения(или не доступна по API).</b>\nРекомендуем: <code>gemini-2.5-flash-image</code>",
-        "gme_chat_not_found": "<emoji document_id=5255834944214700444>🚫</emoji> <b>Не удалось найти чат для экспорта:</b> <code>{}</code>",
-        "gme_sent_to_saved": "<emoji document_id=5255872215940893698>💾</emoji> История экспортирована в избранное.",
-        "new_sdk_missing": "<emoji document_id=5255816510215062547>⚠️</emoji> <b>Для работы модуля нужна библиотека google-genai.</b>\nВыполните: <code>pip install google-genai</code>",
-        "gprompt_usage": "<emoji document_id=5258094861516570110>ℹ️</emoji> <b>Использование:</b>\n<code>.mprompt &lt;текст/пресет&gt;</code> — установить.\n<code>.mprompt -c</code> — очистить.\n<code>.mpresets</code> — база пресетов.",
-        "gprompt_updated": "<emoji document_id=5255836438863319289>✅</emoji> <b>Системный промпт обновлен!</b>\nДлина: {} символов.",
-        "gprompt_cleared": "<emoji document_id=5280499068789887600>🗑</emoji> <b>Системный промпт очищен.</b>",
-        "gprompt_current": "<emoji document_id=5255855332424453335>📝</emoji> <b>Текущий системный промпт:</b>",
-        "gprompt_file_error": "<emoji document_id=5255834944214700444>❗️</emoji> <b>Ошибка чтения файла:</b> {}",
-        "gprompt_file_too_big": "<emoji document_id=5255834944214700444>❗️</emoji> <b>Файл слишком большой</b> (лимит 1 МБ).",
-        "gprompt_not_text": "<emoji document_id=5255834944214700444>❗️</emoji> Это не похоже на текстовый файл.(txt)",
-        "gmodel_no_models": "<emoji document_id=5255816510215062547>⚠️</emoji> Не удалось получить список моделей.",
-        "gmodel_list_error": "<emoji document_id=5255834944214700444>❗️</emoji> Ошибка получения списка: {}",
-        "gimg_process": "<emoji document_id=5283176512747507510>✨</emoji> <b>Генерация...</b>\n<emoji document_id=5256212342991001393>🧠</emoji> <i>Модель: {model}</i>",
+        "gmodel_img_warn": "▲ <b>Текущая модель ({}) не может генерировать изображения(или не доступна по API).</b>\nРекомендуем: <code>gemini-2.5-flash-image</code>",
+        "gme_chat_not_found": "▲ <b>Не удалось найти чат для экспорта:</b> <code>{}</code>",
+        "gme_sent_to_saved": "⎙ История экспортирована в избранное.",
+        "new_sdk_missing": "▲ <b>Для работы модуля нужна библиотека google-genai.</b>\nВыполните: <code>pip install google-genai</code>",
+        "gprompt_usage": "⌕ <b>Использование:</b>\n<code>.mprompt <текст/пресет></code> — установить.\n<code>.mprompt -c</code> — очистить.\n<code>.mpresets</code> — база пресетов.",
+        "gprompt_updated": "✓ <b>Системный промпт обновлен!</b>\nДлина: {} символов.",
+        "gprompt_cleared": "⌫ <b>Системный промпт очищен.</b>",
+        "gprompt_current": "» <b>Текущий системный промпт:</b>",
+        "gprompt_file_error": "▲ <b>Ошибка чтения файла:</b> {}",
+        "gprompt_file_too_big": "▲ <b>Файл слишком большой</b> (лимит 1 МБ).",
+        "gprompt_not_text": "▲ Это не похоже на текстовый файл.(txt)",
+        "gmodel_no_models": "▲ Не удалось получить список моделей.",
+        "gmodel_list_error": "▲ Ошибка получения списка: {}",
+        "gimg_process": "✦ <b>Генерация...</b>\n⌬ <i>Модель: {model}</i>",
         "gpresets_usage": (
-            "<emoji document_id=5258094861516570110>ℹ️</emoji> <b>Управление пресетами:</b>\n"
+            "⌕ <b>Управление пресетами:</b>\n"
             "• <code>.mpresets save [Имя] текст</code> — сохранить (имя в скобках, если с пробелами).\n"
             "• <code>.mpresets load 1</code> или <code>имя</code> — загрузить по номеру/имени.\n"
             "• <code>.mpresets del 1</code> или <code>имя</code> — удалить.\n"
             "• <code>.mpresets list</code> — список."
         ),
-        "gpreset_loaded": "<emoji document_id=5255836438863319289>✅</emoji> <b>Установлен пресет:</b> [<code>{}</code>]\nДлина: {} симв.", 
-        "gpreset_saved": "<emoji document_id=5255872215940893698>💾</emoji> <b>Пресет сохранен!</b>\n<emoji document_id=5255889567608768132>🏷</emoji> <b>Имя:</b> {}\n№ <b>Индекс:</b> {}",
-        "gpreset_deleted": "<emoji document_id=5280499068789887600>🗑</emoji> <b>Пресет удален:</b> {}",
-        "gpreset_not_found": "<emoji document_id=5255834944214700444>🚫</emoji> Пресет с таким именем или индексом не найден.",
-        "gpreset_list_head": "<emoji document_id=5256060567436693438>📋</emoji> <b>Ваши пресеты:</b>\n",
-        "gpreset_empty": "<emoji document_id=5278717357441715177>📂</emoji> Список пресетов пуст.",
+        "gpreset_loaded": "✓ <b>Установлен пресет:</b> [<code>{}</code>]\nДлина: {} симв.", 
+        "gpreset_saved": "⎙ <b>Пресет сохранен!</b>\n∅ <b>Имя:</b> {}\n№ <b>Индекс:</b> {}",
+        "gpreset_deleted": "⌫ <b>Пресет удален:</b> {}",
+        "gpreset_not_found": "▲ Пресет с таким именем или индексом не найден.",
+        "gpreset_list_head": "∅ <b>Ваши пресеты:</b>\n",
+        "gpreset_empty": "⌕ Список пресетов пуст.",
         "tools_status": (
-            "<emoji document_id=5287543644084011559>🛠</emoji> <b>Инструменты-агент:</b> {}\n"
-            "<emoji document_id=5283187323180190072>🧬</emoji> <b>Доступно:</b> <code>run_terminal</code>, <code>read_file</code>, <code>write_file</code>, <code>list_dir</code>, <code>tg_send</code>, <code>tg_history</code>, <code>tg_action</code>, <code>web_search</code>, <code>fetch_url</code>\n"
-            "<emoji document_id=5332753204281121154>⚛️</emoji> <b>Шаги/таймаут:</b> {} / {}с · <b>Провайдер:</b> <code>{}</code>\n\n"
-            "<emoji document_id=5255816510215062547>⚠️</emoji> <i>Доступ к шеллу хоста и Telegram аккаунту. Только при ваших вызовах <code>.m</code>/<code>.mt</code>; в mauto отключено. Работают у всех провайдеров с поддержкой tool-calling (Gemini, OpenAI, OpenRouter, Groq, Mistral, DeepSeek, xAI, Together и т.д.).</i>\n"
+            "⎈ <b>Инструменты-агент:</b> {}\n"
+            "⬡ <b>Доступно:</b> <code>run_terminal</code>, <code>read_file</code>, <code>write_file</code>, <code>list_dir</code>, <code>tg_send</code>, <code>tg_history</code>, <code>tg_action</code>, <code>web_search</code>, <code>fetch_url</code>\n"
+            "◈ <b>Шаги/таймаут:</b> {} / {}с · <b>Провайдер:</b> <code>{}</code>\n\n"
+            "▲ <i>Доступ к шеллу хоста и Telegram аккаунту. Только при ваших вызовах <code>.m</code>/<code>.mt</code>; в mauto отключено. Работают у всех провайдеров с поддержкой tool-calling (Gemini, OpenAI, OpenRouter, Groq, Mistral, DeepSeek, xAI, Together и т.д.).</i>\n"
             "<code>.mtools on/off</code> — переключить."
         ),
-        "tools_on": "<emoji document_id=5255836438863319289>✅</emoji> <b>Инструменты включены.</b>",
-        "tools_off": "<emoji document_id=5256216509109272955>❌</emoji> <b>Инструменты выключены.</b>",
-        "tools_need_gemini": "<emoji document_id=5255816510215062547>⚠️</emoji> <b>Инструменты работают только с провайдером <code>gemini</code>.</b> Сейчас: <code>{}</code>.\nПереключи: <code>.mprovider gemini</code>",
-        "tools_running": "<emoji document_id=5283187323180190072>🧬</emoji> <i>{}</i>",
+        "tools_on": "✓ <b>Инструменты включены.</b>",
+        "tools_off": "✗ <b>Инструменты выключены.</b>",
+        "tools_need_gemini": "▲ <b>Инструменты работают только с провайдером <code>gemini</code>.</b> Сейчас: <code>{}</code>.\nПереключи: <code>.mprovider gemini</code>",
+        "tools_running": "⎈ <i>{}</i>",
         "tools_progress_head": (
-            "<emoji document_id=5258464610956115173>⌛️</emoji> <b>Обработка...</b> <i>· шаг {}</i>\n"
-            "<emoji document_id=5287543644084011559>🛠</emoji> <b>Выполнение команд:</b>"
+            "◴ <b>Обработка...</b> <i>· шаг {}</i>\n"
+            "⎈ <b>Выполнение команд:</b>"
         ),
         "gstat": (
-            "<emoji document_id=5280476193794064671>📊</emoji> <b>Статистика magent-агента</b>\n"
-            "<emoji document_id=5280952793430002348>⏱️</emoji> <b>Аптайм сессии:</b> {uptime}\n\n"
-            "<emoji document_id=5332753204281121154>⚛️</emoji> <b>Провайдер:</b> <code>{provider}</code> · профиль <code>{profile}</code>\n"
-            "<emoji document_id=5285315964806662795>🧠</emoji> <b>Модель:</b> <code>{model}</code>\n"
-            "<emoji document_id=5256116200148075808>🔑</emoji> <b>Ключи Gemini:</b> {g_keys} (в кулдауне: {cooldowns})\n"
-            "<emoji document_id=5332482733010622094>🌐</emoji> <b>Настроены:</b> {configured}\n\n"
-            "<emoji document_id=5280530185827944234>📈</emoji> <b>Запросов:</b> {requests} · <b>ср/посл:</b> {avg_t}с / {last_t}с\n"
-            "<emoji document_id=5256164952321857497>🪙</emoji> <b>Токены:</b> {t_total} (in {t_in} / out {t_out})\n\n"
-            "<emoji document_id=5256212342991001393>🧠</emoji> <b>Память:</b> {chats} чат(ов), {pairs} пар · режим {mem_mode}\n"
-            "<emoji document_id=5258094359005395573>🎭</emoji> <b>Mauto:</b> {gauto_chats} истор. · активно {imp_chats} · память off в {mem_off}\n"
-            "<emoji document_id=5255889567608768132>🏷</emoji> <b>Пресетов:</b> {presets}\n"
-            "<emoji document_id=5287543644084011559>🛠</emoji> <b>Инструменты-агент:</b> {tools_state}"
+            "∷ <b>Статистика magent-агента</b>\n"
+            "◴ <b>Аптайм сессии:</b> {uptime}\n\n"
+            "⌘ <b>Провайдер:</b> <code>{provider}</code> · профиль <code>{profile}</code>\n"
+            "⌬ <b>Модель:</b> <code>{model}</code>\n"
+            "⚿ <b>Ключи Gemini:</b> {g_keys} (в кулдауне: {cooldowns})\n"
+            "⬡ <b>Настроены:</b> {configured}\n\n"
+            "∷ <b>Запросов:</b> {requests} · <b>ср/посл:</b> {avg_t}с / {last_t}с\n"
+            "◈ <b>Токены:</b> {t_total} (in {t_in} / out {t_out})\n\n"
+            "⏣ <b>Память:</b> {chats} чат(ов), {pairs} пар · режим {mem_mode}\n"
+            "⍟ <b>Mauto:</b> {gauto_chats} истор. · активно {imp_chats} · память off в {mem_off}\n"
+            "∅ <b>Пресетов:</b> {presets}\n"
+            "⎈ <b>Инструменты-агент:</b> {tools_state}"
         ),
+
     }
     TEXT_MIME_TYPES = {
         "text/plain", "text/markdown", "text/html", "text/css", "text/csv",
@@ -1774,9 +1775,9 @@ class magent(loader.Module):
             loader.ConfigValue("tools_max_iters", 1000000, "Макс. кол-во шагов вызова инструментов за один запрос.", validator=loader.validators.Integer(minimum=1, maximum=2000000)),
             loader.ConfigValue("tools_output_limit", 6000, "Лимит символов вывода одного инструмента.", validator=loader.validators.Integer(minimum=500, maximum=30000)),
             loader.ConfigValue("tools_confirm", False, "Спрашивать подтверждение перед каждой командой терминала (выводит в лог).", validator=loader.validators.Boolean()),
-            loader.ConfigValue("premium_emoji_refresh", True, "Доп. перерисовка финального ответа, чтобы подхватились премиум-эмодзи (нужен Telegram Premium у аккаунта).", validator=loader.validators.Boolean()),
+            loader.ConfigValue("premium_emoji_refresh", False, "Доп. перерисовка финального ответа (отключено).", validator=loader.validators.Boolean()),
             loader.ConfigValue("rich_mode", True, "Включить Telegram Rich Mode (нативные детали <details>, thinking-блоки модели, таблицы и расширенная разметка).", validator=loader.validators.Boolean()),
-            loader.ConfigValue("clean_symbols_mode", False, "Режим без эмодзи: заменять все эмодзи (в т.ч. премиум) на строгие текстовые Unicode-символы (по умолчанию False — премиум эмодзи включены).", validator=loader.validators.Boolean()),
+            loader.ConfigValue("clean_symbols_mode", True, "Режим без эмодзи: строгие текстовые Unicode-символы (по умолчанию True — чистые символы).", validator=loader.validators.Boolean()),
             loader.ConfigValue("show_tool_calls_in_response", True, "Показывать результаты инструментов и ход работы в итоговом ответе AI.", validator=loader.validators.Boolean()),
             # --- KeyTest (валидатор ключей: .keytest / .kprov / .kproxytest) ---
             loader.ConfigValue("kt_timeout", 20, "KeyTest: таймаут запроса проверки ключа, сек.", validator=loader.validators.Integer(minimum=5, maximum=120)),
@@ -1879,10 +1880,10 @@ class magent(loader.Module):
         self.db.set(self.strings["name"], DB_SAVED_KEYS_KEY, saved_keys)
 
         # Восстановление настроек режима эмодзи и rich mode
-        clean_sym = _get_db("clean_symbols_mode", None)
+        clean_sym = _get_db("clean_symbols_mode", True)
         if clean_sym is None:
-            clean_sym = _get_db("explicit_clean_symbols", False)
-        self.config["clean_symbols_mode"] = bool(clean_sym)
+            clean_sym = True
+        self.config["clean_symbols_mode"] = True
 
         rich_st = _get_db("rich_mode", None)
         if rich_st is not None:
@@ -2633,16 +2634,12 @@ class magent(loader.Module):
             })
 
     def _model_info_line(self, provider: str, model: str, elapsed: float = 0.0, tokens_in: int = 0, tokens_out: int = 0) -> str:
-        clean = self.config.get("clean_symbols_mode", False)
         extra = ""
         if self.config.get("show_time", True):
-            time_icon = "◴" if clean else "<tg-emoji emoji-id=5255971360965930740>🕔</tg-emoji>"
-            extra += f" {time_icon}{round(float(elapsed or 0), 1)}с"
+            extra += f" ◴{round(float(elapsed or 0), 1)}с"
         if self.config.get("show_tokens", True) and (tokens_in or tokens_out):
-            tok_icon = "◈" if clean else "<tg-emoji emoji-id=5255801194361688216>🪙</tg-emoji>"
-            extra += f" {tok_icon}{int(tokens_in or 0) + int(tokens_out or 0)}"
-        prov_icon = "⌬" if clean else "<tg-emoji emoji-id=5332753204281121154>⚛️</tg-emoji>"
-        return f"<i>{prov_icon} {self._provider_label(provider)}: <code>{utils.escape_html(str(model))}</code>{extra}</i>"
+            extra += f" ◈{int(tokens_in or 0) + int(tokens_out or 0)}"
+        return f"<i>⌬ {self._provider_label(provider)}: <code>{utils.escape_html(str(model))}</code>{extra}</i>"
 
     def _extract_retry_delay_seconds(self, text: str, default: int = 3600) -> int:
         raw = str(text or "")
@@ -2851,13 +2848,13 @@ class magent(loader.Module):
         safe_text = self._markdown_to_html(raw_text_chunk)
         formatted_body = self._format_response_with_smart_separation(safe_text)
         text_to_show = f"{header}\n{formatted_body}"
-        text_to_show = text_to_show.replace('<emoji document_id=', '<tg-emoji emoji-id=').replace('</emoji>', '</tg-emoji>')
+        text_to_show = self._clean_symbols_filter(text_to_show)
         nav_row = []
         if page_num > 0:
-            nav_row.append({"text": "◀️", "data": f"gemini:pg:{uid}:{page_num - 1}"})
+            nav_row.append({"text": "‹", "data": f"gemini:pg:{uid}:{page_num - 1}"})
         nav_row.append({"text": f"{page_num + 1}/{total}", "data": "gemini:noop"})
         if page_num < total - 1:
-            nav_row.append({"text": "▶️", "data": f"gemini:pg:{uid}:{page_num + 1}"})
+            nav_row.append({"text": "›", "data": f"gemini:pg:{uid}:{page_num + 1}"})
         extra_row = [{"text": "✗ Закрыть", "data": f"gemini:close:{uid}"}]
         if chat_id and base_msg_id:
             extra_row.append({"text": "↺", "data": f"gemini:regen:{chat_id}:{base_msg_id}"})
@@ -3756,18 +3753,18 @@ class magent(loader.Module):
             
         cur_preview = self._tool_preview(cur.get("name", ""), cur.get("args", {}))
         
-        # Premium emoji style step progress status
+        # Clean symbols step progress status
         text = (
             f"<blockquote>"
-            f"<emoji document_id=5283176512747507510>✨</emoji> <b>magent</b> · <code>{utils.escape_html(model)}</code> · <code>{provider}</code>\n"
-            f"<emoji document_id=5287543644084011559>🛠</emoji> <b>{phase}</b> · шаг <code>{step_num}</code> · <code>{elapsed}с</code>\n"
-            f"<emoji document_id=5258094861516570110>ℹ️</emoji> <b>Status:</b> <code>{utils.escape_html(cur_preview)}</code>"
+            f"✦ <b>magent</b> · <code>{utils.escape_html(model)}</code> · <code>{provider}</code>\n"
+            f"⎈ <b>{phase}</b> · шаг <code>{step_num}</code> · <code>{elapsed}с</code>\n"
+            f"⌕ <b>Status:</b> <code>{utils.escape_html(cur_preview)}</code>"
             f"</blockquote>"
         )
         text = self._maybe_clean_symbols(text)
         try:
             if call:
-                await call.edit(text.replace('<emoji document_id=', '<tg-emoji emoji-id=').replace('</emoji>', '</tg-emoji>'))
+                await call.edit(text)
             elif status_msg:
                 await utils.answer(status_msg, text)
         except Exception:
@@ -3815,7 +3812,7 @@ class magent(loader.Module):
             txt = self.strings["tools_running"].format(utils.escape_html(preview[:160]))
             txt = self._maybe_clean_symbols(txt)
             if call:
-                await call.edit(txt.replace('<emoji document_id=', '<tg-emoji emoji-id=').replace('</emoji>', '</tg-emoji>'))
+                await call.edit(txt)
             elif status_msg:
                 await utils.answer(status_msg, txt)
         except Exception:
@@ -5143,19 +5140,14 @@ class magent(loader.Module):
                 f"{tool_summary}{thinking_block}"
             ).strip()
             
-            if self.config.get("clean_symbols_mode", False):
-                text_to_send = self._clean_symbols_filter(text_to_send)
-            else:
-                text_to_send = text_to_send.replace('<emoji document_id=', '<tg-emoji emoji-id=').replace('</emoji>', '</tg-emoji>')
+            text_to_send = self._clean_symbols_filter(text_to_send)
             
             buttons = self._get_inline_buttons(chat_id, base_message_id) if self.config["interactive_buttons"] else None
             
             if call:
                 await call.edit(text_to_send, reply_markup=buttons)
-                await self._refresh_premium_emoji(call, text_to_send, buttons, is_call=True)
             elif status_msg:
-                sent = await utils.answer(status_msg, text_to_send, reply_markup=buttons)
-                await self._refresh_premium_emoji(sent or status_msg, text_to_send, buttons, is_call=False)
+                await utils.answer(status_msg, text_to_send, reply_markup=buttons)
         return ""
 
     def _markdown_to_rich_html(self, text: str) -> str:
@@ -5229,25 +5221,8 @@ class magent(loader.Module):
         return f"{header}{req_details}{body_html}{divider}{tools_html}{thinking_html}"
 
     async def _refresh_premium_emoji(self, target, text, buttons, is_call=False):
-        """Доп. перерисовка сообщения — Telegram подхватывает премиум-эмодзи."""
-        if not self.config.get("premium_emoji_refresh", True):
-            return
-        me = getattr(self, "me", None)
-        if not getattr(me, "premium", False):
-            return
-        if self.config.get("clean_symbols_mode", False):
-            return
-        if self.config.get("rich_mode", True) or "<details" in text or "<tg-thinking" in text:
-            return
-        try:
-            await asyncio.sleep(0.12)
-            refreshed = text + "⁠"  # word-joiner
-            if is_call:
-                await target.edit(refreshed, reply_markup=buttons)
-            else:
-                await utils.answer(target, refreshed, reply_markup=buttons)
-        except Exception:
-            pass
+        """Disabled to prevent double rendering and entity corruption."""
+        return
 
     async def _handle_api_error(self, error, impersonation_mode, call, status_msg, chat_id, base_message_id, regeneration, attempt):
         error_text = self._handle_error(error)
@@ -7825,15 +7800,13 @@ class magent(loader.Module):
         """[on/off] — Переключить режим строгих текстовых символов вместо эмодзи."""
         args = utils.get_args_raw(message).strip().lower()
         if not args:
-            cur = bool(self.config.get("clean_symbols_mode", False))
-            st = "включен ✓" if cur else "выключен (<emoji document_id=5255836438863319289>✅</emoji> премиум эмодзи активны)"
+            cur = bool(self.config.get("clean_symbols_mode", True))
+            st = "включен ✓" if cur else "выключен ✗"
             return await utils.answer(
                 message,
-                self._maybe_clean_symbols(
-                    f"∅ <b>Режим чистых символов (без эмодзи)</b>: {st}\n"
-                    f"<i>Заменяет все эмодзи (обычные и Telegram Premium) на специальные Unicode-символы.</i>\n\n"
-                    f"Использование: <code>.mnoemoji on</code> или <code>.mnoemoji off</code>"
-                )
+                f"∅ <b>Режим чистых символов (без эмодзи)</b>: {st}\n"
+                f"<i>Все эмодзи заменяются на строгие специальные Unicode-символы.</i>\n\n"
+                f"Использование: <code>.mnoemoji on</code> или <code>.mnoemoji off</code>"
             )
         if args in ("on", "1", "true", "вкл", "yes"):
             self.config["clean_symbols_mode"] = True
@@ -7843,9 +7816,7 @@ class magent(loader.Module):
             self._persist_key("clean_symbols_mode", True)
             await utils.answer(
                 message,
-                self._clean_symbols_filter(
-                    "✓ <b>Режим чистых символов включен.</b> Все эмодзи заменяются на специальные Unicode-символы."
-                )
+                "✓ <b>Режим чистых символов включен.</b> Все эмодзи заменяются на строгие Unicode-символы."
             )
         elif args in ("off", "0", "false", "выкл", "no"):
             self.config["clean_symbols_mode"] = False
@@ -7855,7 +7826,7 @@ class magent(loader.Module):
             self._persist_key("clean_symbols_mode", False)
             await utils.answer(
                 message,
-                "<emoji document_id=5255836438863319289>✅</emoji> <b>Режим чистых символов выключен. Премиум-эмодзи активны.</b>"
+                "✗ <b>Режим чистых символов выключен.</b>"
             )
         else:
             await utils.answer(message, "Использование: <code>.mnoemoji on</code> или <code>.mnoemoji off</code>")
