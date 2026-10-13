@@ -5568,10 +5568,19 @@ class magent(loader.Module):
                                     self._set_key_cooldown(cd_key, 3600)
                                 last_error = ConnectionError(f"{self._provider_label(provider_name)} 429: rate limited ({text[:150]})")
                                 break
-                            if resp.status in (401, 403):
+                            if resp.status == 401:
                                 if not is_custom:
                                     self._set_key_cooldown(cd_key, 86400 * 365)
-                                last_error = ConnectionError(f"{self._provider_label(provider_name)} {resp.status}: invalid key ({text[:150]})")
+                                last_error = ConnectionError(f"{self._provider_label(provider_name)} 401: invalid key ({text[:150]})")
+                                break
+                            if resp.status == 403:
+                                err_msg = text[:150]
+                                try:
+                                    ej = json.loads(text).get("error", {})
+                                    err_msg = ej.get("message", text) if isinstance(ej, dict) else text
+                                except Exception:
+                                    pass
+                                last_error = ConnectionError(f"{self._provider_label(provider_name)} 403: access denied ({err_msg})")
                                 break
                             if resp.status != 200:
                                 fg = None
