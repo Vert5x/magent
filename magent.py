@@ -95,6 +95,8 @@ DB_SKILLS_KEY = "gemini_skills_v1"
 DB_PROVIDER_STATE_KEY = "gemini_provider_state_v1"
 DB_CUSTOM_PROVIDERS_KEY = "gemini_custom_providers_v2"
 DB_SAVED_KEYS_KEY = "gemini_saved_keys_v2"
+DB_ACTIVE_MODEL_KEY = "gemini_active_model_v1"
+DB_PROFILE_KEY = "gemini_profile_v1"
 GEMINI_TIMEOUT = 840
 MAX_FFMPEG_SIZE = 90 * 1024 * 1024
 CHECK_MODEL = "gemini-2.5-pro"  
@@ -1801,6 +1803,7 @@ class magent(loader.Module):
         self.api_keys = []
         self.custom_providers = {}
         self._active_custom_provider = None
+        self._initialized = False
 
     async def client_ready(self, client, db):
         self.client = client
@@ -1813,13 +1816,13 @@ class magent(loader.Module):
 
         def _get_db(k, default=None):
             val = self.db.get(self.strings["name"], k, None)
-            if (val is None or not val) and self.strings["name"] != "Gemini":
+            if val is None and self.strings["name"] != "Gemini":
                 legacy = self.db.get("Gemini", k, None)
                 if legacy is not None:
                     return legacy
             return default if val is None else val
 
-        # --- 1. Восстановление и синхронизация всех API-ключей (защита от потери) ---
+        # --- 1. Восстановление и синхронизация всех API-ключей и моделей (защита от потери) ---
         saved_keys = _get_db(DB_SAVED_KEYS_KEY, {})
         if not isinstance(saved_keys, dict):
             saved_keys = {}
@@ -1829,15 +1832,25 @@ class magent(loader.Module):
         ALL_KEY_CONFIGS = (
             "api_key",
             "openrouter_api_key",
+            "openrouter_model",
             "huggingface_api_key",
+            "huggingface_model",
             "openai_api_key",
+            "openai_model",
             "deepseek_api_key",
+            "deepseek_model",
             "groq_api_key",
+            "groq_model",
             "mistral_api_key",
+            "mistral_model",
             "together_api_key",
+            "together_model",
             "cerebras_api_key",
+            "cerebras_model",
             "xai_api_key",
+            "xai_model",
             "nvidia_api_key",
+            "nvidia_model",
             "custom_api_key",
             "custom_base_url",
             "custom_model",
@@ -1964,10 +1977,28 @@ class magent(loader.Module):
         elif not isinstance(self.skills, dict):
             self.skills = {}
         self.skills = {str(k): str(v) for k, v in self.skills.items()}
-        # Провайдер храним в БД: конфиг Hikka иногда сбрасывается при перезапуске/обновлении.
-        _saved_provider = _get_db(DB_PROVIDER_STATE_KEY, None)
-        if _saved_provider and self._is_valid_provider(_saved_provider):
-            self._activate_provider(_saved_provider)
+        # --- Восстановление профиля ---
+        saved_profile = _get_db(DB_PROFILE_KEY, None)
+        if saved_profile and saved_profile in MODEL_PROFILE_CHOICES:
+            self.config["model_profile"] = saved_profile
+            self.config["auto_model"] = (saved_profile != "manual")
+
+        # --- Восстановление активного провайдера и модели (защита от потери при перезапуске) ---
+        _saved_provider = _get_db(DB_PROVIDER_STATE_KEY, None) or str(self.config.get("provider") or "google").strip().lower()
+        active_provider = self._normalize_provider_name(_saved_provider)
+        if not self._is_valid_provider(active_provider):
+            active_provider = "google"
+
+        saved_active_model = _get_db(DB_ACTIVE_MODEL_KEY, None)
+
+        self._activate_provider(active_provider)
+
+        if saved_active_model and self._model_matches_provider(saved_active_model, active_provider):
+            self.config["model_name"] = saved_active_model
+            self._persist_key("model_name", saved_active_model)
+            self._remember_provider_model(active_provider, saved_active_model, manual=True)
+
+        self._initialized = True
         if not self.api_keys and not any([self.config["openrouter_api_key"], self.config["huggingface_api_key"], self.config["openai_api_key"], self.config["deepseek_api_key"], self.config["groq_api_key"], self.custom_providers]):
             logger.warning("magent: API ключи не настроены ни для одного провайдера.")
         global _gemini_log_client, _gemini_log_channel, _gemini_log_topic_id
@@ -2095,8 +2126,9 @@ class magent(loader.Module):
         p = self._normalize_provider_name(provider)
         if hasattr(self, "custom_providers") and p in self.custom_providers:
             cp = self.custom_providers[p]
+            saved_m = self.provider_models.get(p, {}).get("model") if isinstance(self.provider_models.get(p), dict) else self.provider_models.get(p)
             cfg_m = self._get_cfg_key(f"{p}_model")
-            model = cfg_m or cp.get("model") or "gpt-4o"
+            model = str(saved_m or cfg_m or cp.get("model") or "gpt-4o").strip()
             return {
                 "name": p,
                 "label": cp.get("label") or p.capitalize(),
@@ -2252,10 +2284,20 @@ class magent(loader.Module):
             except Exception:
                 pass
             if hasattr(self, "custom_providers"):
-                if cfg_key == "custom_api_key":
+                if cfg_key in ("custom_api_key",):
                     active = getattr(self, "_active_custom_provider", None) or self._normalize_provider_name()
                     if active in self.custom_providers and value:
                         self.custom_providers[active]["api_key"] = value
+                        self._save_custom_providers()
+                elif cfg_key in ("custom_base_url",):
+                    active = getattr(self, "_active_custom_provider", None) or self._normalize_provider_name()
+                    if active in self.custom_providers and value:
+                        self.custom_providers[active]["base_url"] = value
+                        self._save_custom_providers()
+                elif cfg_key in ("custom_model",):
+                    active = getattr(self, "_active_custom_provider", None) or self._normalize_provider_name()
+                    if active in self.custom_providers and value:
+                        self.custom_providers[active]["model"] = value
                         self._save_custom_providers()
                 elif cfg_key.endswith("_api_key"):
                     p_name = cfg_key[:-8]
@@ -2275,12 +2317,15 @@ class magent(loader.Module):
 
     def _activate_provider(self, prov: str) -> str:
         prev = self._normalize_provider_name()
-        self._remember_provider_model(prev, self.config["model_name"], manual=not self.config["auto_model"])
         new_prov = self._normalize_provider_name(prov)
+        if getattr(self, "_initialized", False) and prev != new_prov:
+            cur_m = str(self.config.get("model_name") or "").strip()
+            if cur_m and self._model_matches_provider(cur_m, prev):
+                self._remember_provider_model(prev, cur_m, manual=not self.config.get("auto_model", False))
         is_custom = (hasattr(self, "custom_providers") and new_prov in self.custom_providers) or new_prov == "custom"
         if is_custom:
             self._active_custom_provider = new_prov
-            if hasattr(self, "db"):
+            if hasattr(self, "db") and hasattr(self, "strings"):
                 self.db.set(self.strings["name"], DB_PROVIDER_STATE_KEY, new_prov)
             try:
                 self.config["provider"] = "custom"
@@ -2302,10 +2347,14 @@ class magent(loader.Module):
                 if m:
                     self.config["custom_model"] = m
                     self._persist_key(f"{new_prov}_model", m)
+                    self._persist_key("custom_model", m)
                     self.config["model_name"] = m
+                    self._persist_key("model_name", m)
+                    if hasattr(self, "db") and hasattr(self, "strings"):
+                        self.db.set(self.strings["name"], DB_ACTIVE_MODEL_KEY, m)
         else:
             self._active_custom_provider = None
-            if hasattr(self, "db"):
+            if hasattr(self, "db") and hasattr(self, "strings"):
                 self.db.set(self.strings["name"], DB_PROVIDER_STATE_KEY, new_prov)
             try:
                 self.config["provider"] = new_prov
@@ -2348,15 +2397,63 @@ class magent(loader.Module):
         provider = self._normalize_provider_name(provider)
         entry = self._provider_model_entry(provider)
         saved = entry.get("model")
-        if saved:
-            self.config["model_name"] = saved
-            self.config["auto_model"] = bool(entry.get("auto_model", False)) if not entry.get("manual", True) else False
-            profile = str(entry.get("profile") or "manual").lower()
-            self.config["model_profile"] = profile if profile in MODEL_PROFILE_CHOICES else "manual"
-            return saved
-        default = self._provider_default_model(provider)
-        self.config["model_name"] = default
-        return default
+
+        if not saved and self._is_custom_provider(provider):
+            if hasattr(self, "custom_providers") and provider in self.custom_providers:
+                saved = self.custom_providers[provider].get("model")
+            if not saved:
+                saved = self._get_cfg_key(f"{provider}_model") or self._get_cfg_key("custom_model")
+
+        if not saved:
+            cfg_key = self.PROVIDER_MODEL_CFG.get(provider)
+            if cfg_key:
+                saved = self._get_cfg_key(cfg_key)
+
+        if not saved and hasattr(self, "db") and hasattr(self, "strings"):
+            db_act = self.db.get(self.strings["name"], DB_ACTIVE_MODEL_KEY, None)
+            if db_act and self._model_matches_provider(db_act, provider):
+                saved = db_act
+
+        if not saved or not self._model_matches_provider(saved, provider):
+            saved = self._provider_default_model(provider)
+
+        self.config["model_name"] = saved
+        self._persist_key("model_name", saved)
+        if hasattr(self, "db") and hasattr(self, "strings"):
+            self.db.set(self.strings["name"], DB_ACTIVE_MODEL_KEY, saved)
+
+        cfg_key = self.PROVIDER_MODEL_CFG.get(provider)
+        if cfg_key:
+            try:
+                self.config[cfg_key] = saved
+            except Exception:
+                pass
+            self._persist_key(cfg_key, saved)
+
+        if self._is_custom_provider(provider):
+            try:
+                self.config["custom_model"] = saved
+            except Exception:
+                pass
+            self._persist_key(f"{provider}_model", saved)
+            self._persist_key("custom_model", saved)
+            if hasattr(self, "custom_providers") and provider in self.custom_providers:
+                self.custom_providers[provider]["model"] = saved
+                self._save_custom_providers()
+
+        auto_m = bool(entry.get("auto_model", False)) if not entry.get("manual", True) else False
+        self.config["auto_model"] = auto_m
+        profile = str(entry.get("profile") or "manual").lower()
+        self.config["model_profile"] = profile if profile in MODEL_PROFILE_CHOICES else "manual"
+
+        self.provider_models[provider] = {
+            "model": saved,
+            "manual": not auto_m,
+            "profile": self.config["model_profile"],
+            "auto_model": auto_m,
+        }
+        self._save_provider_models()
+        return saved
 
     def _provider_profile_models(self, provider: str = None) -> dict:
         provider = self._normalize_provider_name(provider)
@@ -2450,10 +2547,27 @@ class magent(loader.Module):
             configured = provider_model
         elif configured_model and self._model_matches_provider(configured_model, provider):
             configured = configured_model
-        elif provider == "google":
+
+        if not configured:
+            entry_m = self._provider_model_entry(provider).get("model")
+            if entry_m and self._model_matches_provider(entry_m, provider):
+                configured = entry_m
+
+        if not configured and self._is_custom_provider(provider):
+            cp_m = getattr(self, "custom_providers", {}).get(provider, {}).get("model")
+            if cp_m and self._model_matches_provider(cp_m, provider):
+                configured = cp_m
+
+        if not configured:
             glob = str(self.config.get("model_name") or "").strip()
             if glob and self._model_matches_provider(glob, provider):
                 configured = glob
+
+        if not configured and hasattr(self, "db") and hasattr(self, "strings"):
+            saved_m = self.db.get(self.strings["name"], DB_ACTIVE_MODEL_KEY, None)
+            if saved_m and self._model_matches_provider(saved_m, provider):
+                configured = saved_m
+
         if not self.config.get("auto_model", False):
             return configured or default
         profile = str(self.config.get("model_profile") or "auto").strip().lower()
@@ -6969,14 +7083,21 @@ class magent(loader.Module):
                     self.custom_providers[name]["model"] = val
                     self._save_custom_providers()
                     self._persist_key(f"{name}_model", val)
+                    self._persist_key("custom_model", val)
                     if self._normalize_provider_name() == name:
                         self.config["custom_model"] = val
                         self.config["model_name"] = val
+                        self._persist_key("model_name", val)
+                        if hasattr(self, "db") and hasattr(self, "strings"):
+                            self.db.set(self.strings["name"], DB_ACTIVE_MODEL_KEY, val)
                 else:
                     m_cfg = self.PROVIDER_MODEL_CFG.get(name, f"{name}_model")
                     self._persist_key(m_cfg, val)
                     if self._normalize_provider_name() == name:
                         self.config["model_name"] = val
+                        self._persist_key("model_name", val)
+                        if hasattr(self, "db") and hasattr(self, "strings"):
+                            self.db.set(self.strings["name"], DB_ACTIVE_MODEL_KEY, val)
                 self._remember_provider_model(name, val, manual=True)
                 return await utils.answer(
                     message,
@@ -7038,6 +7159,7 @@ class magent(loader.Module):
             self._persist_key(f"{name}_base_url", url)
             self._persist_key("custom_base_url", url)
             self._persist_key(f"{name}_model", model)
+            self._persist_key("custom_model", model)
             self._remember_provider_model(name, model, manual=True)
             self._activate_provider(name)
             key_status = "✓ Задан" if key else "∅ Без ключа (локальный/свободный)"
@@ -7127,6 +7249,8 @@ class magent(loader.Module):
             return await utils.answer(message, self.strings["gprofile_usage"])
         self.config["model_profile"] = args
         self.config["auto_model"] = args != "manual"
+        if hasattr(self, "db") and hasattr(self, "strings"):
+            self.db.set(self.strings["name"], DB_PROFILE_KEY, args)
         effective = self._resolve_effective_model(provider, self.config["model_name"], [], "")
         self._remember_provider_model(provider, effective, manual=args == "manual")
         await utils.answer(message, self.strings["gprofile_set"].format(utils.escape_html(args), utils.escape_html(effective)))
@@ -7150,16 +7274,22 @@ class magent(loader.Module):
         cfg_key = provider_config_keys.get(provider)
         if cfg_key:
             self.config[cfg_key] = args_raw
-        elif self._is_custom_provider(provider):
+            self._persist_key(cfg_key, args_raw)
+        if self._is_custom_provider(provider):
             if hasattr(self, "custom_providers") and provider in self.custom_providers:
                 self.custom_providers[provider]["model"] = args_raw
                 self._save_custom_providers()
+            self._persist_key(f"{provider}_model", args_raw)
+            self._persist_key("custom_model", args_raw)
             self.config["custom_model"] = args_raw
-            self.config["model_name"] = args_raw
-        else:
-            self.config["model_name"] = args_raw
+        self.config["model_name"] = args_raw
+        self._persist_key("model_name", args_raw)
+        if hasattr(self, "db") and hasattr(self, "strings"):
+            self.db.set(self.strings["name"], DB_ACTIVE_MODEL_KEY, args_raw)
         self.config["model_profile"] = "manual"
         self.config["auto_model"] = False
+        if hasattr(self, "db") and hasattr(self, "strings"):
+            self.db.set(self.strings["name"], DB_PROFILE_KEY, "manual")
         self._remember_provider_model(provider, args_raw, manual=True)
         warning = ""
         if not self._model_matches_provider(args_raw, provider):
@@ -7330,8 +7460,7 @@ class magent(loader.Module):
         is_live = data.get("is_live", False)
         current_filter = data.get("filter", "")
 
-        cfg_key = self.PROVIDER_MODEL_CFG.get(provider)
-        active_model = self.config.get(cfg_key) if cfg_key else self.config.get("model_name")
+        active_model = self._resolve_effective_model(provider, self.config.get("model_name"), [], "")
         active_model = str(active_model or self._provider_default_model(provider)).strip()
 
         PAGE_SIZE = 6
@@ -8130,10 +8259,22 @@ class magent(loader.Module):
                 cfg_key = self.PROVIDER_MODEL_CFG.get(provider)
                 if cfg_key:
                     self.config[cfg_key] = selected_model
-                else:
-                    self.config["model_name"] = selected_model
+                    self._persist_key(cfg_key, selected_model)
+                if self._is_custom_provider(provider):
+                    if hasattr(self, "custom_providers") and provider in self.custom_providers:
+                        self.custom_providers[provider]["model"] = selected_model
+                        self._save_custom_providers()
+                    self._persist_key(f"{provider}_model", selected_model)
+                    self._persist_key("custom_model", selected_model)
+                    self.config["custom_model"] = selected_model
+                self.config["model_name"] = selected_model
+                self._persist_key("model_name", selected_model)
+                if hasattr(self, "db") and hasattr(self, "strings"):
+                    self.db.set(self.strings["name"], DB_ACTIVE_MODEL_KEY, selected_model)
                 self.config["model_profile"] = "manual"
                 self.config["auto_model"] = False
+                if hasattr(self, "db") and hasattr(self, "strings"):
+                    self.db.set(self.strings["name"], DB_PROFILE_KEY, "manual")
                 self._remember_provider_model(provider, selected_model, manual=True)
                 try: await call.answer(f"✓ Установлена модель: {selected_model}")
                 except: pass
