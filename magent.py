@@ -1815,6 +1815,7 @@ class magent(loader.Module):
         self.client = client
         self.db = db
         self.me = await client.get_me()
+        self._install_rich_compatibility()
         self.models_menu_cache = {}
         self._provider_models_api_cache = {}
         self._pending_keys = {}
@@ -5280,19 +5281,148 @@ class magent(loader.Module):
                     paragraphs.append(f"<p>{'<br>'.join(lines)}</p>")
         return "\n".join(paragraphs)
 
-    def _supports_rich_message(self) -> bool:
-        """Проверяет, поддерживает ли текущее окружение Heroku передачу rich_message (v2.2.0+)."""
+    def _install_rich_compatibility(self):
+        """Гарантирует поддержку Telegram Rich Message (InputRichMessageHTML / PageBlocks)
+        на всех версиях Heroku (включая ветку master / v2.1.0) без ошибок сигнатур.
+        """
         try:
-            from heroku import utils as h_utils
-            ans_sig = inspect.signature(h_utils.answer)
-            if "rich_message" not in ans_sig.parameters:
+            from herokutl.tl import types as tl_types
+            import secrets
+            import inspect
+
+            # 1. Регистрация rich_article в InlineQuery если отсутствует (Heroku 2.1.0)
+            try:
+                from heroku.inline.types import InlineQuery
+                if not hasattr(InlineQuery, "rich_article"):
+                    async def rich_article(
+                        self_iq,
+                        title: str,
+                        html: str | None = None,
+                        *,
+                        markdown: str | None = None,
+                        rich_message=None,
+                        description: str | None = None,
+                        id: str | None = None,
+                        buttons=None,
+                    ):
+                        if rich_message is None:
+                            if html is not None:
+                                rich_message = tl_types.InputRichMessageHTML(html=html)
+                            elif markdown is not None:
+                                rich_message = tl_types.InputRichMessageMarkdown(markdown=markdown)
+                            else:
+                                raise ValueError("One of html, markdown or rich_message is required")
+
+                        markup = (
+                            self_iq.inline_query.builder._client.build_reply_markup(buttons)
+                            if buttons is not None
+                            else None
+                        )
+                        return tl_types.InputBotInlineResult(
+                            id=id or secrets.token_urlsafe(15),
+                            type="article",
+                            title=title,
+                            description=description,
+                            send_message=tl_types.InputBotInlineMessageRichMessage(
+                                rich_message=rich_message,
+                                reply_markup=markup,
+                            ),
+                        )
+                    InlineQuery.rich_article = rich_article
+            except Exception as e_iq:
+                logger.debug(f"rich_article patch notice: {e_iq}")
+
+            # 2. Патч Form.form и Form._form_inline_handler для поддержки rich_message
+            try:
+                from heroku.inline.form import Form
+                sig = inspect.signature(Form.form)
+                if "rich_message" not in sig.parameters and not getattr(Form, "_magent_rich_patched", False):
+                    orig_form = Form.form
+                    async def patched_form(self_form, text, message, reply_markup=None, *args, **kwargs):
+                        rich_val = kwargs.pop("rich_message", None)
+                        res = await orig_form(self_form, text, message, reply_markup, *args, **kwargs)
+                        if rich_val is not None:
+                            unit_id = getattr(res, "unit_id", None) or getattr(res, "id", None)
+                            if unit_id and hasattr(self_form, "_units") and unit_id in self_form._units:
+                                self_form._units[unit_id]["rich_message"] = rich_val
+                        return res
+                    Form.form = patched_form
+
+                    orig_handler = Form._form_inline_handler
+                    async def patched_handler(self_form, inline_query):
+                        try:
+                            if hasattr(self_form, "_units") and inline_query.query in self_form._units:
+                                unit = self_form._units[inline_query.query]
+                                if unit.get("type") == "form" and "rich_message" in unit:
+                                    rich_value = unit["rich_message"]
+                                    if hasattr(inline_query, "rich_article"):
+                                        await inline_query.answer(
+                                            [
+                                                await inline_query.rich_article(
+                                                    title="Heroku",
+                                                    html=rich_value,
+                                                    buttons=self_form.generate_markup(unit["uid"]),
+                                                    id=utils.rand(20),
+                                                )
+                                            ],
+                                            cache_time=0,
+                                        )
+                                        return
+                        except Exception as e_h:
+                            logger.debug(f"Patched rich handler notice: {e_h}")
+                        return await orig_handler(self_form, inline_query)
+                    Form._form_inline_handler = patched_handler
+                    Form._magent_rich_patched = True
+            except Exception as e_form:
+                logger.debug(f"Form patch notice: {e_form}")
+
+            # 3. Патч utils.answer для поддержки rich_message
+            try:
+                from heroku import utils as h_utils
+                ans_sig = inspect.signature(h_utils.answer)
+                if "rich_message" not in ans_sig.parameters and not getattr(h_utils.answer, "_magent_rich_patched", False):
+                    orig_answer = h_utils.answer
+                    async def patched_answer(message, response="", *args, **kwargs):
+                        rich_msg = kwargs.pop("rich_message", None)
+                        rich = kwargs.pop("rich", False)
+                        if rich and rich_msg is None:
+                            rich_msg = response
+                        if rich_msg is not None:
+                            inline = getattr(getattr(getattr(message, "client", None), "loader", None), "inline", None)
+                            if inline and hasattr(inline, "form"):
+                                form_kwargs = {
+                                    k: kwargs[k] for k in (
+                                        "force_me", "always_allow", "manual_security",
+                                        "disable_security", "on_unload"
+                                    ) if k in kwargs
+                                }
+                                return await inline.form(
+                                    text=response or "Rich message",
+                                    message=message if getattr(message, "out", False) else h_utils.get_chat_id(message),
+                                    rich_message=rich_msg,
+                                    reply_markup=inline._normalize_markup(kwargs.get("reply_markup")) if kwargs.get("reply_markup") else [],
+                                    reply_to=kwargs.get("reply_to") or getattr(message, "reply_to_msg_id", None) or h_utils.get_topic(message),
+                                    silent=kwargs.get("silent", True),
+                                    ttl=kwargs.get("ttl", 600),
+                                    **form_kwargs,
+                                )
+                        return await orig_answer(message, response, *args, **kwargs)
+                    patched_answer._magent_rich_patched = True
+                    h_utils.answer = patched_answer
+            except Exception as e_ans:
+                logger.debug(f"utils.answer patch notice: {e_ans}")
+        except Exception as e:
+            logger.debug(f"Rich compatibility installation notice: {e}")
+
+    def _supports_rich_message(self) -> bool:
+        """Проверяет, доступна ли генерация Telegram Rich Message (InputRichMessageHTML)."""
+        try:
+            from herokutl.tl import types as h_types
+            if not hasattr(h_types, "InputRichMessageHTML") or not hasattr(h_types, "InputBotInlineMessageRichMessage"):
                 return False
             inline_mgr = getattr(getattr(self, "client", None), "loader", None)
-            form_func = getattr(getattr(inline_mgr, "inline", None), "form", None)
-            if form_func and "rich_message" not in inspect.signature(form_func).parameters:
-                return False
-            from herokutl.tl import types as h_types
-            if not hasattr(h_types, "InputRichMessageHTML"):
+            inline = getattr(inline_mgr, "inline", None)
+            if not inline or not getattr(inline, "init_complete", False):
                 return False
             return True
         except Exception:
