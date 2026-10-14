@@ -5158,24 +5158,53 @@ class magent(loader.Module):
             response_html = self._markdown_to_html(clean_result or result_text)
             formatted_body = self._format_response_with_smart_separation(response_html)
             is_rich = bool(self.config.get("rich_mode", True))
-            thinking_block = f"<blockquote expandable><i>⌬ Ход мыслей ({len(thinking_text)} симв.):</i>\n{utils.escape_html(thinking_text)}</blockquote>\n\n" if thinking_text else ""
-            question_html = f"<blockquote expandable>{utils.escape_html(request_text)}</blockquote>"
             
-            tool_summary_text = ""
-            if getattr(self, "_tool_steps", []):
-                tool_summary_text = self._build_tool_details_blocks(self._tool_steps, elapsed, rich=False) + "\n\n"
-            
-            text_to_send = (
-                f"{mem_indicator}\n{model_info}\n\n"
-                f"{self.strings['question_prefix']}\n{question_html}\n\n"
-                f"{self.strings['response_prefix']}\n{formatted_body}\n\n"
-                f"{tool_summary_text}{thinking_block}"
-            ).strip()
+            # --- 1. Разметка текста для ветки master (Telegram native HTML с expandable-блоками) ---
+            if is_rich:
+                tok_str = f" · ◈ {tokens_in}↑ {tokens_out}↓" if self.config["show_tokens"] and (tokens_in or tokens_out) else ""
+                time_str = f" · ◴ {elapsed}s" if self.config["show_time"] else ""
+                header_rich = f"<b>✦ {self._provider_label(provider)} · <code>{model}</code></b>\n<i>{mem_indicator}{time_str}{tok_str}</i>"
+                if attempt > 1:
+                    header_rich += f" <i>(попытка {attempt})</i>"
+                
+                req_block = f"<blockquote expandable><b>» Запрос:</b>\n{utils.escape_html(request_text)}</blockquote>"
+                
+                tools_block = ""
+                if getattr(self, "_tool_steps", []):
+                    tools_block = self._build_tool_details_blocks(self._tool_steps, elapsed, rich=False)
+                
+                think_block = (
+                    f"<blockquote expandable><i>⌬ Ход мыслей ({len(thinking_text)} симв.):</i>\n{utils.escape_html(thinking_text)}</blockquote>"
+                    if thinking_text else ""
+                )
+                
+                parts = [header_rich, req_block, formatted_body]
+                if tools_block:
+                    parts.append(tools_block)
+                if think_block:
+                    parts.append(think_block)
+                
+                text_to_send = "\n\n".join(p for p in parts if p).strip()
+            else:
+                thinking_block = f"<i>⌬ Ход мыслей ({len(thinking_text)} симв.):</i>\n{utils.escape_html(thinking_text)}\n\n" if thinking_text else ""
+                question_html = f"<blockquote>{utils.escape_html(request_text)}</blockquote>"
+                tool_summary_text = ""
+                if getattr(self, "_tool_steps", []):
+                    tool_summary_text = self._build_tool_details_blocks(self._tool_steps, elapsed, rich=False) + "\n\n"
+                
+                text_to_send = (
+                    f"{mem_indicator}\n{model_info}\n\n"
+                    f"{self.strings['question_prefix']}\n{question_html}\n\n"
+                    f"{self.strings['response_prefix']}\n{formatted_body}\n\n"
+                    f"{tool_summary_text}{thinking_block}"
+                ).strip()
             
             text_to_send = self._clean_symbols_filter(text_to_send)
             
+            # --- 2. Разметка rich_html для ветки beta (v2.2.0 PageBlocks / IV), если поддерживается ---
             rich_html = None
-            if is_rich:
+            supports_rich_api = is_rich and self._supports_rich_message()
+            if supports_rich_api:
                 try:
                     rich_html = self._build_rich_response(
                         request_text, result_text, provider, model, elapsed,
@@ -5185,12 +5214,13 @@ class magent(loader.Module):
                 except Exception as ex:
                     logger.warning(f"Error building rich response: {ex}")
                     rich_html = None
+                    supports_rich_api = False
             
             buttons = self._get_inline_buttons(chat_id, base_message_id) if self.config["interactive_buttons"] else None
             
             if call:
                 try:
-                    if is_rich and rich_html:
+                    if supports_rich_api and rich_html:
                         await utils.answer(call, text_to_send, rich_message=rich_html, reply_markup=buttons)
                     else:
                         await call.edit(text_to_send, reply_markup=buttons)
@@ -5199,7 +5229,7 @@ class magent(loader.Module):
                     await call.edit(text_to_send, reply_markup=buttons)
             elif status_msg:
                 try:
-                    if is_rich and rich_html:
+                    if supports_rich_api and rich_html:
                         await utils.answer(status_msg, text_to_send, rich_message=rich_html, reply_markup=buttons)
                     else:
                         await utils.answer(status_msg, text_to_send, reply_markup=buttons)
@@ -5249,6 +5279,24 @@ class magent(loader.Module):
                 else:
                     paragraphs.append(f"<p>{'<br>'.join(lines)}</p>")
         return "\n".join(paragraphs)
+
+    def _supports_rich_message(self) -> bool:
+        """Проверяет, поддерживает ли текущее окружение Heroku передачу rich_message (v2.2.0+)."""
+        try:
+            from heroku import utils as h_utils
+            ans_sig = inspect.signature(h_utils.answer)
+            if "rich_message" not in ans_sig.parameters:
+                return False
+            inline_mgr = getattr(getattr(self, "client", None), "loader", None)
+            form_func = getattr(getattr(inline_mgr, "inline", None), "form", None)
+            if form_func and "rich_message" not in inspect.signature(form_func).parameters:
+                return False
+            from herokutl.tl import types as h_types
+            if not hasattr(h_types, "InputRichMessageHTML"):
+                return False
+            return True
+        except Exception:
+            return False
 
     def _build_rich_response(self, request_text, result_text, provider, model, elapsed, tokens_in, tokens_out, mem_indicator, tool_steps):
         thinking_parts = []
