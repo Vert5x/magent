@@ -3754,7 +3754,7 @@ class magent(loader.Module):
         progress_lines.append(f"• <code>готовит ответ · ответ · готово · {tot_s}</code>")
         
         if rich:
-            nl = "\n"
+            nl = "<br>"
             results_html = f"<details><summary>⎈ Результаты инструментов ({len(tool_steps)})</summary><p>{nl.join(res_lines)}</p></details>"
             progress_html = f"<details><summary>◴ Ход работы</summary><p>{nl.join(progress_lines)}</p></details>"
             return f"{results_html}\n\n{progress_html}"
@@ -5246,9 +5246,9 @@ class magent(loader.Module):
             code = m.group(2).strip()
             idx = len(code_blocks)
             code_blocks.append((lang, code))
-            return f"___CODE_BLOCK_{idx}___"
+            return f"\n\n___CODE_BLOCK_{idx}___\n\n"
         
-        t = re.sub(r"```(.*?)\n([\s\S]+?)\n```", save_code, text)
+        t = re.sub(r"```([a-zA-Z0-9_-]*)\n?([\s\S]*?)```", save_code, text)
         t = re.sub(r"^###\s+(.*)", r"<h4>\1</h4>", t, flags=re.M)
         t = re.sub(r"^##\s+(.*)", r"<h3>\1</h3>", t, flags=re.M)
         t = re.sub(r"^#\s+(.*)", r"<h2>\1</h2>", t, flags=re.M)
@@ -5332,7 +5332,7 @@ class magent(loader.Module):
             except Exception as e_iq:
                 logger.debug(f"rich_article patch notice: {e_iq}")
 
-            # 2. Патч Form.form и Form._form_inline_handler для поддержки rich_message
+            # 2. Патч Form.form и Form._form_inline_handler для поддержки rich_message с fallback
             try:
                 from heroku.inline.form import Form
                 sig = inspect.signature(Form.form)
@@ -5340,38 +5340,66 @@ class magent(loader.Module):
                     orig_form = Form.form
                     async def patched_form(self_form, text, message, reply_markup=None, *args, **kwargs):
                         rich_val = kwargs.pop("rich_message", None)
-                        res = await orig_form(self_form, text, message, reply_markup, *args, **kwargs)
                         if rich_val is not None:
-                            unit_id = getattr(res, "unit_id", None) or getattr(res, "id", None)
-                            if unit_id and hasattr(self_form, "_units") and unit_id in self_form._units:
-                                self_form._units[unit_id]["rich_message"] = rich_val
-                        return res
+                            orig_units = self_form._units
+                            class RichUnits(dict):
+                                def __setitem__(inner_self, k, v):
+                                    if isinstance(v, dict):
+                                        v["rich_message"] = rich_val
+                                    orig_units[k] = v
+                                    super().__setitem__(k, v)
+                            self_form._units = RichUnits(orig_units)
+                            try:
+                                return await orig_form(self_form, text, message, reply_markup, *args, **kwargs)
+                            finally:
+                                self_form._units = orig_units
+                        return await orig_form(self_form, text, message, reply_markup, *args, **kwargs)
                     Form.form = patched_form
 
+                if not getattr(Form, "_magent_handler_patched", False):
                     orig_handler = Form._form_inline_handler
-                    async def patched_handler(self_form, inline_query):
+                    async def safe_handler(self_form, inline_query):
                         try:
                             if hasattr(self_form, "_units") and inline_query.query in self_form._units:
                                 unit = self_form._units[inline_query.query]
                                 if unit.get("type") == "form" and "rich_message" in unit:
                                     rich_value = unit["rich_message"]
                                     if hasattr(inline_query, "rich_article"):
-                                        await inline_query.answer(
-                                            [
-                                                await inline_query.rich_article(
-                                                    title="Heroku",
-                                                    html=rich_value,
-                                                    buttons=self_form.generate_markup(unit["uid"]),
-                                                    id=utils.rand(20),
-                                                )
-                                            ],
-                                            cache_time=0,
-                                        )
-                                        return
+                                        try:
+                                            await inline_query.answer(
+                                                [
+                                                    await inline_query.rich_article(
+                                                        title="Heroku",
+                                                        html=rich_value,
+                                                        buttons=self_form.generate_markup(unit["uid"]),
+                                                        id=utils.rand(20),
+                                                    )
+                                                ],
+                                                cache_time=0,
+                                            )
+                                            return
+                                        except Exception as e_rich:
+                                            logger.warning(f"Rich article answer failed: {e_rich}, fallback to standard article")
+                                            form_text = "🪐" if unit.get("premium_emoji_pre_edit") else unit.get("text")
+                                            await inline_query.answer(
+                                                [
+                                                    await inline_query.builder.article(
+                                                        title="Heroku",
+                                                        text=form_text,
+                                                        parse_mode="HTML",
+                                                        link_preview=False,
+                                                        buttons=self_form.generate_markup(unit["uid"]),
+                                                        id=utils.rand(20),
+                                                    )
+                                                ],
+                                                cache_time=0,
+                                            )
+                                            return
                         except Exception as e_h:
                             logger.debug(f"Patched rich handler notice: {e_h}")
                         return await orig_handler(self_form, inline_query)
-                    Form._form_inline_handler = patched_handler
+                    Form._form_inline_handler = safe_handler
+                    Form._magent_handler_patched = True
                     Form._magent_rich_patched = True
             except Exception as e_form:
                 logger.debug(f"Form patch notice: {e_form}")
@@ -5444,16 +5472,18 @@ class magent(loader.Module):
             
         thinking_html = ""
         if thinking_text:
-            thinking_html = f"<details><summary>⌬ Ход мыслей модели ({len(thinking_text)} симв.)</summary><tg-thinking>{utils.escape_html(thinking_text)}</tg-thinking></details>"
+            clean_thinking = utils.escape_html(thinking_text).replace("\r\n", "<br>").replace("\n", "<br>")
+            thinking_html = f"<details><summary>⌬ Ход мыслей модели ({len(thinking_text)} симв.)</summary><blockquote><i>{clean_thinking}</i></blockquote></details>"
             
         short_req = utils.escape_html(request_text[:60]) + ("..." if len(request_text) > 60 else "")
-        req_details = f"<details><summary>» Запрос: {short_req}</summary><p>{utils.escape_html(request_text)}</p></details>"
+        clean_req = utils.escape_html(request_text).replace("\r\n", "<br>").replace("\n", "<br>")
+        req_details = f"<details><summary>» Запрос: {short_req}</summary><p>{clean_req}</p></details>"
         
         tok_str = f" · ◈ {tokens_in}↑ {tokens_out}↓" if self.config["show_tokens"] and (tokens_in or tokens_out) else ""
         time_str = f" · ◴ {elapsed}s" if self.config["show_time"] else ""
         header = f"<h3>✦ {self._provider_label(provider)} · <code>{model}</code></h3><p>{mem_indicator}{time_str}{tok_str}</p>"
         
-        divider = "<hr>" if (tools_html or thinking_html) else ""
+        divider = "<hr/>" if (tools_html or thinking_html) else ""
         return f"{header}{req_details}{body_html}{divider}{tools_html}{thinking_html}"
 
     async def _refresh_premium_emoji(self, target, text, buttons, is_call=False):
